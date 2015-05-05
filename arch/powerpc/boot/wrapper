@@ -273,7 +273,7 @@ coff)
 miboot|uboot*)
     # miboot and U-boot want just the bare bits, not an ELF binary
     ext=bin
-    objflags="-O binary"
+    objflags="-O binary --set-section-flags=.bss=contents,alloc,load,data"
     tmp="$ofile"
     ksection=image
     isection=initrd
