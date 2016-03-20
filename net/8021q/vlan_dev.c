@@ -799,6 +799,20 @@ static int vlan_dev_fill_forward_path(struct net_device_path_ctx *ctx,
 	return 0;
 }
 
+static int vlan_dev_change_carrier(struct net_device *dev, bool new_carrier)
+{
+	struct vlan_dev_priv *vlan = vlan_dev_priv(dev);
+
+	if (vlan->flags & VLAN_FLAG_LOOSE_BINDING)
+		return -EOPNOTSUPP;
+
+	if (new_carrier)
+		netif_carrier_on(dev);
+	else
+		netif_carrier_off(dev);
+	return 0;
+}
+
 static const struct ethtool_ops vlan_ethtool_ops = {
 	.get_link_ksettings	= vlan_ethtool_get_link_ksettings,
 	.get_drvinfo	        = vlan_ethtool_get_drvinfo,
@@ -838,6 +852,7 @@ static const struct net_device_ops vlan_netdev_ops = {
 	.ndo_fix_features	= vlan_dev_fix_features,
 	.ndo_get_iflink		= vlan_dev_get_iflink,
 	.ndo_fill_forward_path	= vlan_dev_fill_forward_path,
+	.ndo_change_carrier     = vlan_dev_change_carrier,
 };
 
 static void vlan_dev_free(struct net_device *dev)
