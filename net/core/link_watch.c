@@ -18,6 +18,11 @@
 #include <linux/bitops.h>
 #include <linux/types.h>
 
+#if defined(CONFIG_NET_LINKWATCH_HIGHPRI)
+#define linkwatch_wq system_highpri_wq
+#else
+#define linkwatch_wq system_wq
+#endif
 
 enum lw_bits {
 	LW_URGENT = 0,
@@ -138,9 +143,9 @@ static void linkwatch_schedule_work(int urgent)
 	 * override the existing timer.
 	 */
 	if (test_bit(LW_URGENT, &linkwatch_flags))
-		mod_delayed_work(system_wq, &linkwatch_work, 0);
+		mod_delayed_work(linkwatch_wq, &linkwatch_work, 0);
 	else
-		schedule_delayed_work(&linkwatch_work, delay);
+		queue_delayed_work(linkwatch_wq, &linkwatch_work, delay);
 }
 
 

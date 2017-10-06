@@ -325,6 +325,15 @@ config NET_FLOW_LIMIT
 	  with many clients some protection against DoS by a single (spoofed)
 	  flow that greatly exceeds average workload.
 
+config NET_LINKWATCH_HIGHPRI
+	bool "Run the link watch event from the high-prio workqueue"
+	help
+	  Normally the link watch event is scheduled on the system
+	  workqueue which is a good option for most systems. This
+	  option moves it to the high-priority workqueue. This is
+	  useful for systems where reaction time to link events is
+	  critical, e.g. on networking equipment.
+
 menu "Network testing"
 
 config NET_PKTGEN
