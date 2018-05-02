@@ -140,6 +140,7 @@ struct mv88e6xxx_info {
 	unsigned int g1_irqs;
 	unsigned int g2_irqs;
 	bool use_g1_phy_irq;
+	int led_pos;
 	bool pvt;
 
 	/* Mark certain ports as invalid. This is required for example for the

@@ -291,6 +291,16 @@
 /* Offset 0x13: OutFiltered Counter */
 #define MV88E6XXX_PORT_OUT_FILTERED	0x13
 
+/* Offset 0x16: LED Control */
+#define MV88E6XXX_PORT_LED_CONTROL	0x16
+#define LED_LINK_ACT_PERIDOT  0x5
+#define LED_LINK_ACT_AGATE    0x3
+#define LED_FORCE_OFF         0xe
+#define LED_FORCE_ON          0xf
+#define LED_UPDATE      (1 << 15)
+#define LED_NORMAL_MODE_PERIDOT (LED_UPDATE | (LED_LINK_ACT_PERIDOT << 4) | LED_FORCE_OFF)
+#define LED_NORMAL_MODE_AGATE (LED_UPDATE | (LED_FORCE_OFF << 4) | LED_LINK_ACT_AGATE)
+
 /* Offset 0x18: IEEE Priority Mapping Table */
 #define MV88E6390_PORT_IEEE_PRIO_MAP_TABLE			0x18
 #define MV88E6390_PORT_IEEE_PRIO_MAP_TABLE_UPDATE		0x8000
