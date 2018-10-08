@@ -1584,6 +1584,7 @@ static int dsa_switch_touch_ports(struct dsa_switch *ds)
 static int dsa_switch_parse_of(struct dsa_switch *ds, struct device_node *dn)
 {
 	int err;
+	int sz;
 
 	err = dsa_switch_parse_member_of(ds, dn);
 	if (err)
@@ -1592,6 +1593,11 @@ static int dsa_switch_parse_of(struct dsa_switch *ds, struct device_node *dn)
 	err = dsa_switch_touch_ports(ds);
 	if (err)
 		return err;
+
+	/* Don't error out if this optional property isn't found */
+	sz = of_property_read_u32(dn, "dsa,num_tx_queues", &ds->num_tx_queues);
+	if (sz < 0 && sz != -EINVAL)
+		return sz;
 
 	return dsa_switch_parse_ports_of(ds, dn);
 }
