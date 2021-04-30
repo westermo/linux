@@ -124,7 +124,7 @@ static int gpio_wdt_probe(struct platform_device *pdev)
 		return ret;
 	if (!strcmp(algo, "toggle")) {
 		priv->hw_algo = HW_ALGO_TOGGLE;
-		gflags = GPIOD_IN;
+		gflags = GPIOD_OUT_LOW;
 	} else if (!strcmp(algo, "level")) {
 		priv->hw_algo = HW_ALGO_LEVEL;
 		gflags = GPIOD_OUT_LOW;
