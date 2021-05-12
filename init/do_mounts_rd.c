@@ -35,6 +35,62 @@ __setup("ramdisk_start=", ramdisk_start_setup);
 
 static int __init crd_load(decompress_fn deco);
 
+#define SQUASHFS_ALIGNMENT 4096
+#define SQUASHFS_CHAIN_MAX 10 /* Arbitrary */
+
+static unsigned int __init calc_sqfs_pad(long long used)
+{
+	unsigned int tail;
+
+	tail = used % SQUASHFS_ALIGNMENT;
+
+	return SQUASHFS_ALIGNMENT - tail;
+}
+
+/*
+ * This function allows us to copy more than one chained squashfs file system.
+ *
+ * WeOS supports a format of chained squashfs file systems such as:
+ * weos-data.sqfs | weos-meta.sqfs | [app-data.sqfs | app-meta.sqfs] ...
+ *
+ * The kernel needs to know about this format in order to be able to copy them
+ * all to a ram device, such as /dev/ram0. In this function we look for one or
+ * more squashfs file systems in succession. We return the total BYTES_USED for
+ * them all, including padding.
+ */
+static long long __init check_squashfs_chain(struct file *file, int start_block)
+{
+	unsigned char *buf;
+	long long tot = 0;
+	int i;
+
+	buf = kmalloc(sizeof(struct squashfs_super_block), GFP_KERNEL);
+	if (!buf)
+		return 0;
+
+	for (i = 0; i < SQUASHFS_CHAIN_MAX; i++) {
+		struct squashfs_super_block *sb;
+		unsigned int pad;
+		long long used;
+		loff_t pos;
+
+		pos = start_block * BLOCK_SIZE + tot;
+		kernel_read(file, buf, sizeof(struct squashfs_super_block), &pos);
+		sb = (struct squashfs_super_block *) buf;
+
+		if (le32_to_cpu(sb->s_magic) != SQUASHFS_MAGIC)
+			break;
+
+		used = le64_to_cpu(sb->bytes_used);
+		pad = calc_sqfs_pad(used);
+		tot += used + pad;
+	}
+
+	kfree(buf);
+
+	return tot;
+}
+
 /*
  * This routine tries to find a RAM disk image to load, and returns the
  * number of blocks to read for a non-compressed image, 0 if the image
@@ -117,11 +173,15 @@ identify_ramdisk_image(struct file *file, loff_t pos,
 
 	/* squashfs is at block zero too */
 	if (le32_to_cpu(squashfsb->s_magic) == SQUASHFS_MAGIC) {
+		long long used;
+
 		printk(KERN_NOTICE
 		       "RAMDISK: squashfs filesystem found at block %d\n",
 		       start_block);
-		nblocks = (le64_to_cpu(squashfsb->bytes_used) + BLOCK_SIZE - 1)
-			 >> BLOCK_SIZE_BITS;
+
+		used = check_squashfs_chain(file, start_block);
+
+		nblocks = (used + BLOCK_SIZE - 1) >> BLOCK_SIZE_BITS;
 		goto done;
 	}
 
