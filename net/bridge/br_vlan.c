@@ -432,6 +432,7 @@ struct sk_buff *br_handle_vlan(struct net_bridge *br,
 {
 	struct pcpu_sw_netstats *stats;
 	struct net_bridge_vlan *v;
+	struct bridge_vlan_info p_vinfo;
 	u16 vid;
 
 	/* If this packet was not filtered at input, let it pass */
@@ -444,6 +445,17 @@ struct sk_buff *br_handle_vlan(struct net_bridge *br,
 	 */
 	br_vlan_get_tag(skb, &vid);
 	v = br_vlan_find(vg, vid);
+
+	if(p && (p->vlan_policy == BR_PORT_VLAN_POLICY_NEST)) {
+		if (unlikely(br_vlan_get_info_rcu(skb->dev, vid, &p_vinfo)))
+			goto out;
+		if (p_vinfo.flags & BRIDGE_VLAN_INFO_UNTAGGED) {
+			if (skb_vlan_tag_present(skb) &&
+			    eth_type_vlan(skb->protocol))
+				__vlan_hwaccel_clear_tag(skb);
+		}
+	}
+
 	/* Vlan entry must be configured at this point.  The
 	 * only exception is the bridge is set in promisc mode and the
 	 * packet is destined for the bridge device.  In this case
@@ -486,7 +498,8 @@ out:
 }
 
 /* Called under RCU */
-static bool __allowed_ingress(const struct net_bridge *br,
+static bool __allowed_ingress(struct net_bridge_port *p,
+			      const struct net_bridge *br,
 			      struct net_bridge_vlan_group *vg,
 			      struct sk_buff *skb, u16 *vid,
 			      u8 *state,
@@ -494,7 +507,9 @@ static bool __allowed_ingress(const struct net_bridge *br,
 {
 	struct pcpu_sw_netstats *stats;
 	struct net_bridge_vlan *v;
+	struct vlan_ethhdr *veth;
 	bool tagged;
+	bool proto_mismatch = false;
 
 	BR_INPUT_SKB_CB(skb)->vlan_filtered = true;
 	/* If vlan tx offload is disabled on bridge device and frame was
@@ -521,10 +536,9 @@ static bool __allowed_ingress(const struct net_bridge *br,
 			skb_pull(skb, ETH_HLEN);
 			skb_reset_mac_len(skb);
 			*vid = 0;
-			tagged = false;
-		} else {
-			tagged = true;
+			proto_mismatch = true;
 		}
+		tagged = true;
 	} else {
 		/* Untagged frame */
 		tagged = false;
@@ -544,7 +558,7 @@ static bool __allowed_ingress(const struct net_bridge *br,
 		 * ingress frame is considered to belong to this vlan.
 		 */
 		*vid = pvid;
-		if (likely(!tagged))
+		if (!tagged || proto_mismatch)
 			/* Untagged Frame. */
 			__vlan_hwaccel_put_tag(skb, br->vlan_proto, pvid);
 		else
@@ -576,6 +590,40 @@ static bool __allowed_ingress(const struct net_bridge *br,
 			goto drop;
 	}
 
+	if (p && tagged) {
+		switch (p->vlan_policy) {
+		case BR_PORT_VLAN_POLICY_8021Q:
+			break;
+		case BR_PORT_VLAN_POLICY_FORCE:
+			if (skb->protocol == br->vlan_proto)
+				__skb_vlan_pop(skb, vid);
+			__vlan_hwaccel_put_tag(skb, br->vlan_proto, vg->pvid);
+			v = br_vlan_find(vg, vg->pvid);
+			break;
+		case BR_PORT_VLAN_POLICY_NEST:
+			if (skb_vlan_tag_present(skb)) {
+				skb_expand_head(skb,
+						skb_headroom(skb)+VLAN_HLEN);
+				skb_push(skb, VLAN_HLEN);
+				skb->mac_header -= VLAN_HLEN;
+				memmove(skb_mac_header(skb), skb_mac_header(skb)
+					+ VLAN_HLEN, ETH_HLEN-ETH_TLEN);
+			veth = (struct vlan_ethhdr *)(skb_mac_header(skb));
+			veth->h_vlan_proto = skb->vlan_proto;
+			veth->h_vlan_TCI = htons(skb->vlan_tci);
+			skb->protocol = skb->vlan_proto;
+			skb->mac_len += VLAN_HLEN;
+			skb_postpush_rcsum(skb, skb->data + (2 * ETH_ALEN),
+					   VLAN_HLEN);
+			}
+			__vlan_hwaccel_put_tag(skb, br->vlan_proto, vg->pvid);
+			v = br_vlan_find(vg, vg->pvid);
+			break;
+		default:
+			goto drop;
+		}
+	}
+
 	if (br_opt_get(br, BROPT_VLAN_STATS_ENABLED)) {
 		stats = this_cpu_ptr(v->stats);
 		u64_stats_update_begin(&stats->syncp);
@@ -593,7 +641,8 @@ drop:
 	return false;
 }
 
-bool br_allowed_ingress(const struct net_bridge *br,
+bool br_allowed_ingress(struct net_bridge_port *p,
+			const struct net_bridge *br,
 			struct net_bridge_vlan_group *vg, struct sk_buff *skb,
 			u16 *vid, u8 *state,
 			struct net_bridge_vlan **vlan)
@@ -607,7 +656,7 @@ bool br_allowed_ingress(const struct net_bridge *br,
 		return true;
 	}
 
-	return __allowed_ingress(br, vg, skb, vid, state, vlan);
+	return __allowed_ingress(p, br, vg, skb, vid, state, vlan);
 }
 
 /* Called under RCU. */

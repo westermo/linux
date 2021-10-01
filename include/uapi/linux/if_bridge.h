@@ -52,6 +52,10 @@
 #define BR_STATE_FORWARDING 3
 #define BR_STATE_BLOCKING 4
 
+#define BR_PORT_VLAN_POLICY_8021Q 0
+#define BR_PORT_VLAN_POLICY_FORCE 1
+#define BR_PORT_VLAN_POLICY_NEST 2
+
 struct __bridge_info {
 	__u64 designated_root;
 	__u64 bridge_id;

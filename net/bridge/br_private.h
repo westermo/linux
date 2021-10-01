@@ -349,6 +349,7 @@ struct net_bridge_port {
 	unsigned long			flags;
 #ifdef CONFIG_BRIDGE_VLAN_FILTERING
 	struct net_bridge_vlan_group	__rcu *vlgrp;
+	u8				vlan_policy;
 #endif
 	struct net_bridge_port		__rcu *backup_port;
 
@@ -1416,7 +1417,8 @@ br_multicast_ctx_options_equal(const struct net_bridge_mcast *brmctx1,
 
 /* br_vlan.c */
 #ifdef CONFIG_BRIDGE_VLAN_FILTERING
-bool br_allowed_ingress(const struct net_bridge *br,
+bool br_allowed_ingress(struct net_bridge_port * p,
+			const struct net_bridge *br,
 			struct net_bridge_vlan_group *vg, struct sk_buff *skb,
 			u16 *vid, u8 *state,
 			struct net_bridge_vlan **vlan);
@@ -1531,7 +1533,8 @@ static inline u16 br_vlan_flags(const struct net_bridge_vlan *v, u16 pvid)
 	return v->vid == pvid ? v->flags | BRIDGE_VLAN_INFO_PVID : v->flags;
 }
 #else
-static inline bool br_allowed_ingress(const struct net_bridge *br,
+static inline bool br_allowed_ingress(struct net_bridge_port * p,
+				      const struct net_bridge *br,
 				      struct net_bridge_vlan_group *vg,
 				      struct sk_buff *skb,
 				      u16 *vid, u8 *state,
