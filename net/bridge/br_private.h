@@ -1478,6 +1478,10 @@ int br_vlan_fill_forward_path_mode(struct net_bridge *br,
 				   struct net_bridge_port *dst,
 				   struct net_device_path *path);
 
+int br_vlan_port_set_policy(struct net_bridge_port *p,
+			    u8 policy,
+			    struct netlink_ext_ack *extack);
+
 static inline struct net_bridge_vlan_group *br_vlan_group(
 					const struct net_bridge *br)
 {
@@ -1650,6 +1654,13 @@ static inline void br_vlan_fill_forward_path_pvid(struct net_bridge *br,
 static inline int br_vlan_fill_forward_path_mode(struct net_bridge *br,
 						 struct net_bridge_port *dst,
 						 struct net_device_path *path)
+{
+	return 0;
+}
+
+static inline int br_vlan_port_set_policy(struct net_bridge_port *p,
+					  u8 policy,
+					  struct netlink_ext_ack *extack)
 {
 	return 0;
 }

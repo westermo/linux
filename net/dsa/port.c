@@ -726,6 +726,17 @@ int dsa_port_bridge_flags(struct dsa_port *dp,
 	return 0;
 }
 
+int dsa_port_change_vlan_policy(struct dsa_port *dp,
+				u8 vlan_policy,
+				struct netlink_ext_ack *extack)
+{
+	struct dsa_switch *ds = dp->ds;
+	if (!ds->ops->port_vlan_policy_change)
+		return -EOPNOTSUPP;
+
+	return (ds->ops->port_vlan_policy_change(ds, dp->index, vlan_policy));
+}
+
 int dsa_port_mtu_change(struct dsa_port *dp, int new_mtu,
 			bool targeted_match)
 {

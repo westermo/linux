@@ -185,6 +185,7 @@
 /* Offset 0x07: Default Port VLAN ID & Priority */
 #define MV88E6XXX_PORT_DEFAULT_VLAN		0x07
 #define MV88E6XXX_PORT_DEFAULT_VLAN_MASK	0x0fff
+#define MV88E6XXX_PORT_DEFAULT_VLAN_FORCE	0x1000
 
 /* Offset 0x08: Port Control 2 Register */
 #define MV88E6XXX_PORT_CTL2				0x08
@@ -364,6 +365,7 @@ int mv88e6xxx_port_set_fid(struct mv88e6xxx_chip *chip, int port, u16 fid);
 
 int mv88e6xxx_port_get_pvid(struct mv88e6xxx_chip *chip, int port, u16 *pvid);
 int mv88e6xxx_port_set_pvid(struct mv88e6xxx_chip *chip, int port, u16 pvid);
+int mv88e6xxx_port_force_pvid(struct mv88e6xxx_chip *chip, int port, bool force);
 
 int mv88e6xxx_port_set_8021q_mode(struct mv88e6xxx_chip *chip, int port,
 				  u16 mode);

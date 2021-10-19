@@ -1696,6 +1696,52 @@ static int mv88e6xxx_port_vlan_filtering(struct dsa_switch *ds, int port,
 	return err;
 }
 
+static int mv88e6xxx_port_vlan_policy_change(struct dsa_switch *ds, int port,
+					     u8 vlan_policy)
+{
+	int err;
+	u16 mode;
+	struct mv88e6xxx_chip *chip = ds->priv;
+	mv88e6xxx_reg_lock(chip);
+	switch (vlan_policy)
+	{
+	case 0: /* Standard 802.1Q mode */
+		mode = MV88E6XXX_PORT_CTL2_8021Q_MODE_SECURE;
+		err = mv88e6xxx_port_force_pvid(chip, port, false);
+		if (err)
+		{
+			mv88e6xxx_reg_unlock(chip);
+			return err;
+		}
+		err = mv88e6xxx_port_set_8021q_mode(chip, port, mode);
+		break;
+	case 1: /**Force pvid mode */
+		mode = MV88E6XXX_PORT_CTL2_8021Q_MODE_SECURE;
+		err = mv88e6xxx_port_set_8021q_mode(chip, port, mode);
+		if (err)
+		{
+			mv88e6xxx_reg_unlock(chip);
+			return err;
+		}
+		err = mv88e6xxx_port_force_pvid(chip, port, true);
+		break;
+	case 2: /* Nested Q-in-Q mode */
+		err = mv88e6xxx_port_force_pvid(chip, port, false);
+		if (err)
+		{
+			mv88e6xxx_reg_unlock(chip);
+			return err;
+		}
+		mode = MV88E6XXX_PORT_CTL2_8021Q_MODE_DISABLED;
+		err = mv88e6xxx_port_set_8021q_mode(chip, port, mode);
+		break;
+	default:
+		return -EOPNOTSUPP;
+	}
+	mv88e6xxx_reg_unlock(chip);
+	return err;
+}
+
 static int
 mv88e6xxx_port_vlan_prepare(struct dsa_switch *ds, int port,
 			    const struct switchdev_obj_port_vlan *vlan)
@@ -6146,6 +6192,7 @@ static const struct dsa_switch_ops mv88e6xxx_switch_ops = {
 	.port_stp_state_set	= mv88e6xxx_port_stp_state_set,
 	.port_fast_age		= mv88e6xxx_port_fast_age,
 	.port_vlan_filtering	= mv88e6xxx_port_vlan_filtering,
+	.port_vlan_policy_change = mv88e6xxx_port_vlan_policy_change,
 	.port_vlan_add		= mv88e6xxx_port_vlan_add,
 	.port_vlan_del		= mv88e6xxx_port_vlan_del,
 	.port_fdb_add           = mv88e6xxx_port_fdb_add,

@@ -13,6 +13,7 @@
 #include <net/net_namespace.h>
 #include <net/sock.h>
 #include <uapi/linux/if_bridge.h>
+#include <linux/netdev_features.h>
 
 #include "br_private.h"
 #include "br_private_stp.h"
@@ -858,9 +859,10 @@ static int br_set_port_state(struct net_bridge_port *p, u8 state)
 	return 0;
 }
 
-/* Set the vlan ingress policy of the port to the default 802.1q or forced or nested */
 #ifdef CONFIG_BRIDGE_VLAN_FILTERING
-static int br_set_port_vlan_policy(struct net_bridge_port *p, u8 policy)
+/* Set the vlan ingress policy of the port to the default 802.1q or forced or nested */
+static int br_set_port_vlan_policy(struct net_bridge_port *p, u8 policy,
+				   struct netlink_ext_ack *extack)
 {
 	if (policy > BR_PORT_VLAN_POLICY_NEST)
 		return -EINVAL;
@@ -871,7 +873,13 @@ static int br_set_port_vlan_policy(struct net_bridge_port *p, u8 policy)
 		return -ENETDOWN;
 
 	p->vlan_policy = policy;
-	return 0;
+
+	/* Check that everything needed is in place */
+	if (!p->br || !p->br->dev)
+		return -ENOENT;
+
+	/* Try to offload the port policy to hardware */
+	return(br_vlan_port_set_policy(p, policy, extack));
 }
 #endif
 
@@ -949,7 +957,8 @@ static int br_setport(struct net_bridge_port *p, struct nlattr *tb[],
 
 #ifdef CONFIG_BRIDGE_VLAN_FILTERING
 	if (tb[IFLA_BRPORT_VLAN_POLICY]) {
-		err = br_set_port_vlan_policy(p, nla_get_u8(tb[IFLA_BRPORT_VLAN_POLICY]));
+		err = br_set_port_vlan_policy(p,
+			nla_get_u8(tb[IFLA_BRPORT_VLAN_POLICY]), extack);
 		if (err)
 			return err;
 	}

@@ -1755,6 +1755,20 @@ void br_vlan_port_event(struct net_bridge_port *p, unsigned long event)
 	}
 }
 
+int br_vlan_port_set_policy(struct net_bridge_port *p, u8 policy,
+			    struct netlink_ext_ack *extack)
+{
+	struct net_bridge *br = p->br;
+	struct switchdev_attr attr = {
+		.orig_dev = br->dev,
+		.id = SWITCHDEV_ATTR_ID_BRIDGE_PORT_VLAN_POLICY,
+		.flags = SWITCHDEV_F_SKIP_EOPNOTSUPP,
+		.u.vlan_policy = policy,
+	};
+
+	return(switchdev_port_attr_set(p->dev, &attr, extack));
+}
+
 static bool br_vlan_stats_fill(struct sk_buff *skb,
 			       const struct net_bridge_vlan *v)
 {

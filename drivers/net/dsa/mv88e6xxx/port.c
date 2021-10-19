@@ -1154,6 +1154,29 @@ int mv88e6xxx_port_set_pvid(struct mv88e6xxx_chip *chip, int port, u16 pvid)
 	return 0;
 }
 
+int mv88e6xxx_port_force_pvid(struct mv88e6xxx_chip *chip, int port, bool force)
+{
+	u16 reg;
+	int err;
+
+	err = mv88e6xxx_port_read(chip, port, MV88E6XXX_PORT_DEFAULT_VLAN,
+				  &reg);
+	if (err)
+		return err;
+
+	if (force)
+		reg |= MV88E6XXX_PORT_DEFAULT_VLAN_FORCE;
+	else
+		reg &= ~MV88E6XXX_PORT_DEFAULT_VLAN_FORCE;
+
+	err = mv88e6xxx_port_write(chip, port, MV88E6XXX_PORT_DEFAULT_VLAN,
+				   reg);
+	if (err)
+		return err;
+
+	return 0;
+}
+
 /* Offset 0x08: Port Control 2 Register */
 
 static const char * const mv88e6xxx_port_8021q_mode_names[] = {
@@ -1250,9 +1273,6 @@ int mv88e6xxx_port_set_8021q_mode(struct mv88e6xxx_chip *chip, int port,
 	err = mv88e6xxx_port_write(chip, port, MV88E6XXX_PORT_CTL2, reg);
 	if (err)
 		return err;
-
-	dev_dbg(chip->dev, "p%d: 802.1QMode set to %s\n", port,
-		mv88e6xxx_port_8021q_mode_names[mode]);
 
 	return 0;
 }

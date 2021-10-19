@@ -259,6 +259,14 @@ BRPORT_ATTR_FLAG(multicast_fast_leave, BR_MULTICAST_FAST_LEAVE);
 BRPORT_ATTR_FLAG(multicast_to_unicast, BR_MULTICAST_TO_UNICAST);
 #endif
 
+#ifdef CONFIG_BRIDGE_VLAN_FILTERING
+static ssize_t show_port_vlan_policy(struct net_bridge_port *p, char *buf)
+{
+	return sprintf(buf, "%d\n", p->vlan_policy);
+}
+static BRPORT_ATTR(vlan_policy, 0444, show_port_vlan_policy, NULL);
+#endif
+
 static const struct brport_attribute *brport_attrs[] = {
 	&brport_attr_path_cost,
 	&brport_attr_priority,
@@ -293,6 +301,9 @@ static const struct brport_attribute *brport_attrs[] = {
 	&brport_attr_neigh_suppress,
 	&brport_attr_isolated,
 	&brport_attr_backup_port,
+#ifdef CONFIG_BRIDGE_VLAN_FILTERING
+	&brport_attr_vlan_policy,
+#endif
 	NULL
 };
 
