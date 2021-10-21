@@ -595,12 +595,16 @@ static bool __allowed_ingress(struct net_bridge_port *p,
 		case BR_PORT_VLAN_POLICY_8021Q:
 			break;
 		case BR_PORT_VLAN_POLICY_FORCE:
+			if (!vg->pvid)
+				goto drop;
 			if (skb->protocol == br->vlan_proto)
 				__skb_vlan_pop(skb, vid);
 			__vlan_hwaccel_put_tag(skb, br->vlan_proto, vg->pvid);
 			v = br_vlan_find(vg, vg->pvid);
 			break;
 		case BR_PORT_VLAN_POLICY_NEST:
+			if (!vg->pvid)
+				goto drop;
 			if (skb_vlan_tag_present(skb)) {
 				skb_expand_head(skb,
 						skb_headroom(skb)+VLAN_HLEN);
