@@ -221,6 +221,7 @@ struct net_bridge_vlan {
  * @num_vlans: number of total VLAN entries
  * @pvid: PVID VLAN id
  * @pvid_state: PVID's STP state (e.g. forwarding, learning, blocking)
+ * @vlan_policy: Policy in use (e.g. 802.1q, force, nest)
  *
  * IMPORTANT: Be careful when checking if there're VLAN entries using list
  *            primitives because the bridge can have entries in its list which
@@ -235,6 +236,7 @@ struct net_bridge_vlan_group {
 	u16				num_vlans;
 	u16				pvid;
 	u8				pvid_state;
+	u8				vlan_policy;
 };
 
 /* bridge fdb flags */
@@ -349,7 +351,6 @@ struct net_bridge_port {
 	unsigned long			flags;
 #ifdef CONFIG_BRIDGE_VLAN_FILTERING
 	struct net_bridge_vlan_group	__rcu *vlgrp;
-	u8				vlan_policy;
 #endif
 	struct net_bridge_port		__rcu *backup_port;
 
@@ -638,6 +639,24 @@ static inline bool br_vlan_valid_id(u16 vid, struct netlink_ext_ack *extack)
 		NL_SET_ERR_MSG_MOD(extack, "Vlan id is invalid");
 
 	return ret;
+}
+
+static inline bool br_vlan_valid_policy(u16 flags, struct netlink_ext_ack *extack)
+{
+	bool ret = !((flags & BRIDGE_VLAN_INFO_POLICY_FORCE) &&
+		     (flags & BRIDGE_VLAN_INFO_POLICY_NEST));
+
+	if (!ret)
+		NL_SET_ERR_MSG_MOD(extack, "Vlan policy is invalid");
+
+	return ret;
+}
+
+static inline void br_vlan_policy_enforce_pvid(u16 flags)
+{
+	if ((flags & BRIDGE_VLAN_INFO_POLICY_FORCE) ||
+	    (flags & BRIDGE_VLAN_INFO_POLICY_NEST))
+		flags |= BRIDGE_VLAN_INFO_PVID;
 }
 
 static inline bool br_vlan_valid_range(const struct bridge_vlan_info *cur,
@@ -1417,8 +1436,7 @@ br_multicast_ctx_options_equal(const struct net_bridge_mcast *brmctx1,
 
 /* br_vlan.c */
 #ifdef CONFIG_BRIDGE_VLAN_FILTERING
-bool br_allowed_ingress(struct net_bridge_port * p,
-			const struct net_bridge *br,
+bool br_allowed_ingress(const struct net_bridge *br,
 			struct net_bridge_vlan_group *vg, struct sk_buff *skb,
 			u16 *vid, u8 *state,
 			struct net_bridge_vlan **vlan);
@@ -1537,8 +1555,7 @@ static inline u16 br_vlan_flags(const struct net_bridge_vlan *v, u16 pvid)
 	return v->vid == pvid ? v->flags | BRIDGE_VLAN_INFO_PVID : v->flags;
 }
 #else
-static inline bool br_allowed_ingress(struct net_bridge_port * p,
-				      const struct net_bridge *br,
+static inline bool br_allowed_ingress(const struct net_bridge *br,
 				      struct net_bridge_vlan_group *vg,
 				      struct sk_buff *skb,
 				      u16 *vid, u8 *state,

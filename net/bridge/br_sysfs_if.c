@@ -262,7 +262,10 @@ BRPORT_ATTR_FLAG(multicast_to_unicast, BR_MULTICAST_TO_UNICAST);
 #ifdef CONFIG_BRIDGE_VLAN_FILTERING
 static ssize_t show_port_vlan_policy(struct net_bridge_port *p, char *buf)
 {
-	return sprintf(buf, "%d\n", p->vlan_policy);
+	struct net_bridge_vlan_group *vg;
+
+	vg = nbp_vlan_group(p);
+	return sprintf(buf, "%d\n", vg->vlan_policy);
 }
 static BRPORT_ATTR(vlan_policy, 0444, show_port_vlan_policy, NULL);
 #endif

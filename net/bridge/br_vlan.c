@@ -54,6 +54,7 @@ static bool __vlan_delete_pvid(struct net_bridge_vlan_group *vg, u16 vid)
 
 	smp_wmb();
 	vg->pvid = 0;
+	vg->vlan_policy = BR_PORT_VLAN_POLICY_8021Q;
 
 	return true;
 }
@@ -79,6 +80,18 @@ static bool __vlan_add_flags(struct net_bridge_vlan *v, u16 flags)
 		v->flags |= BRIDGE_VLAN_INFO_UNTAGGED;
 	else
 		v->flags &= ~BRIDGE_VLAN_INFO_UNTAGGED;
+
+	if (flags & BRIDGE_VLAN_INFO_POLICY_FORCE) {
+		vg->vlan_policy = BR_PORT_VLAN_POLICY_FORCE;
+		v->flags |= BRIDGE_VLAN_INFO_POLICY_FORCE;
+	} else
+		v->flags &= ~BRIDGE_VLAN_INFO_POLICY_FORCE;
+
+	if (flags & BRIDGE_VLAN_INFO_POLICY_NEST) {
+		vg->vlan_policy = BR_PORT_VLAN_POLICY_NEST;
+		v->flags |= BRIDGE_VLAN_INFO_POLICY_NEST;
+	} else
+		v->flags &= ~BRIDGE_VLAN_INFO_POLICY_NEST;
 
 	return ret || !!(old_flags ^ v->flags);
 }
@@ -446,7 +459,7 @@ struct sk_buff *br_handle_vlan(struct net_bridge *br,
 	br_vlan_get_tag(skb, &vid);
 	v = br_vlan_find(vg, vid);
 
-	if(p && (p->vlan_policy == BR_PORT_VLAN_POLICY_NEST)) {
+	if(vg->vlan_policy == BR_PORT_VLAN_POLICY_NEST) {
 		if (unlikely(br_vlan_get_info_rcu(skb->dev, vid, &p_vinfo)))
 			goto out;
 		if (p_vinfo.flags & BRIDGE_VLAN_INFO_UNTAGGED) {
@@ -498,8 +511,7 @@ out:
 }
 
 /* Called under RCU */
-static bool __allowed_ingress(struct net_bridge_port *p,
-			      const struct net_bridge *br,
+static bool __allowed_ingress(const struct net_bridge *br,
 			      struct net_bridge_vlan_group *vg,
 			      struct sk_buff *skb, u16 *vid,
 			      u8 *state,
@@ -590,21 +602,17 @@ static bool __allowed_ingress(struct net_bridge_port *p,
 			goto drop;
 	}
 
-	if (p && tagged) {
-		switch (p->vlan_policy) {
+	if (tagged) {
+		switch (vg->vlan_policy) {
 		case BR_PORT_VLAN_POLICY_8021Q:
 			break;
 		case BR_PORT_VLAN_POLICY_FORCE:
-			if (!vg->pvid)
-				goto drop;
 			if (skb->protocol == br->vlan_proto)
 				__skb_vlan_pop(skb, vid);
 			__vlan_hwaccel_put_tag(skb, br->vlan_proto, vg->pvid);
 			v = br_vlan_find(vg, vg->pvid);
 			break;
 		case BR_PORT_VLAN_POLICY_NEST:
-			if (!vg->pvid)
-				goto drop;
 			if (skb_vlan_tag_present(skb)) {
 				skb_expand_head(skb,
 						skb_headroom(skb)+VLAN_HLEN);
@@ -645,8 +653,7 @@ drop:
 	return false;
 }
 
-bool br_allowed_ingress(struct net_bridge_port *p,
-			const struct net_bridge *br,
+bool br_allowed_ingress(const struct net_bridge *br,
 			struct net_bridge_vlan_group *vg, struct sk_buff *skb,
 			u16 *vid, u8 *state,
 			struct net_bridge_vlan **vlan)
@@ -660,7 +667,7 @@ bool br_allowed_ingress(struct net_bridge_port *p,
 		return true;
 	}
 
-	return __allowed_ingress(p, br, vg, skb, vid, state, vlan);
+	return __allowed_ingress(br, vg, skb, vid, state, vlan);
 }
 
 /* Called under RCU. */
@@ -749,7 +756,6 @@ static int br_vlan_add_existing(struct net_bridge *br,
 		*changed = true;
 		br_multicast_toggle_one_vlan(vlan, true);
 	}
-
 	if (__vlan_add_flags(vlan, flags))
 		*changed = true;
 
@@ -1759,20 +1765,6 @@ void br_vlan_port_event(struct net_bridge_port *p, unsigned long event)
 	}
 }
 
-int br_vlan_port_set_policy(struct net_bridge_port *p, u8 policy,
-			    struct netlink_ext_ack *extack)
-{
-	struct net_bridge *br = p->br;
-	struct switchdev_attr attr = {
-		.orig_dev = br->dev,
-		.id = SWITCHDEV_ATTR_ID_BRIDGE_PORT_VLAN_POLICY,
-		.flags = SWITCHDEV_F_SKIP_EOPNOTSUPP,
-		.u.vlan_policy = policy,
-	};
-
-	return(switchdev_port_attr_set(p->dev, &attr, extack));
-}
-
 static bool br_vlan_stats_fill(struct sk_buff *skb,
 			       const struct net_bridge_vlan *v)
 {
@@ -1822,6 +1814,10 @@ static bool br_vlan_fill_vids(struct sk_buff *skb, u16 vid, u16 vid_range,
 		info.flags |= BRIDGE_VLAN_INFO_UNTAGGED;
 	if (flags & BRIDGE_VLAN_INFO_PVID)
 		info.flags |= BRIDGE_VLAN_INFO_PVID;
+	if (flags & BRIDGE_VLAN_INFO_POLICY_FORCE)
+		info.flags |= BRIDGE_VLAN_INFO_POLICY_FORCE;
+	if (flags & BRIDGE_VLAN_INFO_POLICY_NEST)
+		info.flags |= BRIDGE_VLAN_INFO_POLICY_NEST;
 
 	if (nla_put(skb, BRIDGE_VLANDB_ENTRY_INFO, sizeof(info), &info))
 		goto out_err;

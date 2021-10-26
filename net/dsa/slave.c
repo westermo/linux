@@ -314,11 +314,6 @@ static int dsa_slave_port_attr_set(struct net_device *dev, const void *ctx,
 
 		ret = dsa_port_bridge_flags(dp, attr->u.brport_flags, extack);
 		break;
-	case SWITCHDEV_ATTR_ID_BRIDGE_PORT_VLAN_POLICY:
-		if (!dsa_port_offloads_bridge(dp, attr->orig_dev))
-			return -EOPNOTSUPP;
-		ret = dsa_port_change_vlan_policy(dp, attr->u.vlan_policy, extack);
-		break;
 	default:
 		ret = -EOPNOTSUPP;
 		break;

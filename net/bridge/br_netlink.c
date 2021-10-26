@@ -183,7 +183,6 @@ static inline size_t br_port_info_size(void)
 		+ nla_total_size(1)	/* IFLA_BRPORT_PROXYARP */
 		+ nla_total_size(1)	/* IFLA_BRPORT_PROXYARP_WIFI */
 		+ nla_total_size(1)	/* IFLA_BRPORT_VLAN_TUNNEL */
-		+ nla_total_size(1)	/* IFLA_BRPORT_VLAN_POLICY */
 		+ nla_total_size(1)	/* IFLA_BRPORT_NEIGH_SUPPRESS */
 		+ nla_total_size(1)	/* IFLA_BRPORT_ISOLATED */
 		+ nla_total_size(sizeof(struct ifla_bridge_id))	/* IFLA_BRPORT_ROOT_ID */
@@ -264,9 +263,6 @@ static int br_port_fill_attrs(struct sk_buff *skb,
 	    nla_put_u8(skb, IFLA_BRPORT_CONFIG_PENDING, p->config_pending) ||
 	    nla_put_u8(skb, IFLA_BRPORT_VLAN_TUNNEL, !!(p->flags &
 							BR_VLAN_TUNNEL)) ||
-#ifdef CONFIG_BRIDGE_VLAN_FILTERING
-	    nla_put_u8(skb, IFLA_BRPORT_VLAN_POLICY, p->vlan_policy) ||
-#endif
 	    nla_put_u16(skb, IFLA_BRPORT_GROUP_FWD_MASK, p->group_fwd_mask) ||
 	    nla_put_u8(skb, IFLA_BRPORT_NEIGH_SUPPRESS,
 		       !!(p->flags & BR_NEIGH_SUPPRESS)) ||
@@ -412,9 +408,15 @@ static int br_fill_ifvlaninfo(struct sk_buff *skb,
 
 		vinfo.vid = v->vid;
 		vinfo.flags = 0;
-		if (v->vid == pvid)
+		if (v->vid == pvid) {
 			vinfo.flags |= BRIDGE_VLAN_INFO_PVID;
 
+			if (v->flags & BRIDGE_VLAN_INFO_POLICY_FORCE)
+				vinfo.flags |= BRIDGE_VLAN_INFO_POLICY_FORCE;
+
+			if (v->flags & BRIDGE_VLAN_INFO_POLICY_NEST)
+				vinfo.flags |= BRIDGE_VLAN_INFO_POLICY_NEST;
+		}
 		if (v->flags & BRIDGE_VLAN_INFO_UNTAGGED)
 			vinfo.flags |= BRIDGE_VLAN_INFO_UNTAGGED;
 
@@ -699,6 +701,11 @@ int br_process_vlan_info(struct net_bridge *br,
 	if (!br_vlan_valid_id(vinfo_curr->vid, extack))
 		return -EINVAL;
 
+	if (!br_vlan_valid_policy(vinfo_curr->flags, extack))
+		return -EINVAL;
+
+	br_vlan_policy_enforce_pvid(vinfo_curr->flags);
+
 	/* needed for vlan-only NEWVLAN/DELVLAN notifications */
 	rtm_cmd = br_afspec_cmd_to_rtm(cmd);
 
@@ -829,7 +836,6 @@ static const struct nla_policy br_port_policy[IFLA_BRPORT_MAX + 1] = {
 	[IFLA_BRPORT_MCAST_FLOOD] = { .type = NLA_U8 },
 	[IFLA_BRPORT_BCAST_FLOOD] = { .type = NLA_U8 },
 	[IFLA_BRPORT_VLAN_TUNNEL] = { .type = NLA_U8 },
-	[IFLA_BRPORT_VLAN_POLICY] = { .type = NLA_U8 },
 	[IFLA_BRPORT_GROUP_FWD_MASK] = { .type = NLA_U16 },
 	[IFLA_BRPORT_NEIGH_SUPPRESS] = { .type = NLA_U8 },
 	[IFLA_BRPORT_ISOLATED]	= { .type = NLA_U8 },
@@ -858,30 +864,6 @@ static int br_set_port_state(struct net_bridge_port *p, u8 state)
 	br_port_state_selection(p->br);
 	return 0;
 }
-
-#ifdef CONFIG_BRIDGE_VLAN_FILTERING
-/* Set the vlan ingress policy of the port to the default 802.1q or forced or nested */
-static int br_set_port_vlan_policy(struct net_bridge_port *p, u8 policy,
-				   struct netlink_ext_ack *extack)
-{
-	if (policy > BR_PORT_VLAN_POLICY_NEST)
-		return -EINVAL;
-
-	/* if device is not up, change is not allowed
-	 */
-	if (!netif_running(p->dev) || (!netif_oper_up(p->dev)))
-		return -ENETDOWN;
-
-	p->vlan_policy = policy;
-
-	/* Check that everything needed is in place */
-	if (!p->br || !p->br->dev)
-		return -ENOENT;
-
-	/* Try to offload the port policy to hardware */
-	return(br_vlan_port_set_policy(p, policy, extack));
-}
-#endif
 
 /* Set/clear or port flags based on attribute */
 static void br_set_port_flag(struct net_bridge_port *p, struct nlattr *tb[],
@@ -954,15 +936,6 @@ static int br_setport(struct net_bridge_port *p, struct nlattr *tb[],
 		if (err)
 			return err;
 	}
-
-#ifdef CONFIG_BRIDGE_VLAN_FILTERING
-	if (tb[IFLA_BRPORT_VLAN_POLICY]) {
-		err = br_set_port_vlan_policy(p,
-			nla_get_u8(tb[IFLA_BRPORT_VLAN_POLICY]), extack);
-		if (err)
-			return err;
-	}
-#endif
 
 	if (tb[IFLA_BRPORT_FLUSH])
 		br_fdb_delete_by_port(p->br, p, 0, 0);
