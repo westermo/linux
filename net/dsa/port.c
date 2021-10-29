@@ -726,15 +726,6 @@ int dsa_port_bridge_flags(struct dsa_port *dp,
 	return 0;
 }
 
-int dsa_port_set_vlan_policy(struct dsa_port *dp, u8 vlan_policy)
-{
-	struct dsa_switch *ds = dp->ds;
-	if (!ds->ops->port_vlan_policy_change)
-		return -EOPNOTSUPP;
-
-	return (ds->ops->port_vlan_policy_change(ds, dp->index, vlan_policy));
-}
-
 int dsa_port_mtu_change(struct dsa_port *dp, int new_mtu,
 			bool targeted_match)
 {
@@ -894,15 +885,7 @@ int dsa_port_vlan_add(struct dsa_port *dp,
 		.vlan = vlan,
 		.extack = extack,
 	};
-	if (dp->type != DSA_PORT_TYPE_CPU) {
-		if (vlan->flags & BRIDGE_VLAN_INFO_POLICY_FORCE)
-			dsa_port_set_vlan_policy(dp, BR_PORT_VLAN_POLICY_FORCE);
-		if (vlan->flags & BRIDGE_VLAN_INFO_POLICY_NEST)
-			dsa_port_set_vlan_policy(dp, BR_PORT_VLAN_POLICY_NEST);
-		if (!(vlan->flags & (BRIDGE_VLAN_INFO_POLICY_FORCE |
-				     BRIDGE_VLAN_INFO_POLICY_NEST)))
-			dsa_port_set_vlan_policy(dp, BR_PORT_VLAN_POLICY_8021Q);
-	}
+
 	return dsa_port_notify(dp, DSA_NOTIFIER_VLAN_ADD, &info);
 }
 
@@ -914,8 +897,6 @@ int dsa_port_vlan_del(struct dsa_port *dp,
 		.port = dp->index,
 		.vlan = vlan,
 	};
-
-	dsa_port_set_vlan_policy(dp, BR_PORT_VLAN_POLICY_8021Q);
 
 	return dsa_port_notify(dp, DSA_NOTIFIER_VLAN_DEL, &info);
 }

@@ -1702,43 +1702,32 @@ static int mv88e6xxx_port_vlan_policy_change(struct dsa_switch *ds, int port,
 	int err;
 	u16 mode;
 	struct mv88e6xxx_chip *chip = ds->priv;
-	mv88e6xxx_reg_lock(chip);
 	switch (vlan_policy)
 	{
 	case 0: /* Standard 802.1Q mode */
 		mode = MV88E6XXX_PORT_CTL2_8021Q_MODE_SECURE;
 		err = mv88e6xxx_port_force_pvid(chip, port, false);
 		if (err)
-		{
-			mv88e6xxx_reg_unlock(chip);
 			return err;
-		}
 		err = mv88e6xxx_port_set_8021q_mode(chip, port, mode);
 		break;
 	case 1: /**Force pvid mode */
 		mode = MV88E6XXX_PORT_CTL2_8021Q_MODE_SECURE;
 		err = mv88e6xxx_port_set_8021q_mode(chip, port, mode);
 		if (err)
-		{
-			mv88e6xxx_reg_unlock(chip);
 			return err;
-		}
 		err = mv88e6xxx_port_force_pvid(chip, port, true);
 		break;
 	case 2: /* Nested Q-in-Q mode */
 		err = mv88e6xxx_port_force_pvid(chip, port, false);
 		if (err)
-		{
-			mv88e6xxx_reg_unlock(chip);
 			return err;
-		}
 		mode = MV88E6XXX_PORT_CTL2_8021Q_MODE_DISABLED;
 		err = mv88e6xxx_port_set_8021q_mode(chip, port, mode);
 		break;
 	default:
 		return -EOPNOTSUPP;
 	}
-	mv88e6xxx_reg_unlock(chip);
 	return err;
 }
 
@@ -2169,7 +2158,10 @@ static int mv88e6xxx_port_vlan_add(struct dsa_switch *ds, int port,
 	struct mv88e6xxx_chip *chip = ds->priv;
 	bool untagged = vlan->flags & BRIDGE_VLAN_INFO_UNTAGGED;
 	bool pvid = vlan->flags & BRIDGE_VLAN_INFO_PVID;
+	bool force = vlan->flags & BRIDGE_VLAN_INFO_POLICY_FORCE;
+	bool nest = vlan->flags & BRIDGE_VLAN_INFO_POLICY_NEST;
 	bool warn;
+	u16 pvid_curr;
 	u8 member;
 	int err;
 
@@ -2193,6 +2185,33 @@ static int mv88e6xxx_port_vlan_add(struct dsa_switch *ds, int port,
 	warn = !dsa_is_cpu_port(ds, port) && !dsa_is_dsa_port(ds, port);
 
 	mv88e6xxx_reg_lock(chip);
+
+	err = mv88e6xxx_port_get_pvid(chip, port, &pvid_curr);
+	if (err)
+		goto out;
+
+	if (!dsa_is_cpu_port(ds, port)) {
+		if (pvid) {
+			if (force)
+				err = mv88e6xxx_port_vlan_policy_change(ds,
+									port, 1);
+			if (nest)
+				err = mv88e6xxx_port_vlan_policy_change(ds,
+									port, 2);
+			if (!(force || nest))
+				err = mv88e6xxx_port_vlan_policy_change(ds,
+									port, 0);
+		}
+		if (err)
+			goto out;
+		if (vlan->vid == pvid_curr) {
+			if (!(force || nest))
+				err = mv88e6xxx_port_vlan_policy_change(ds,
+									port, 0);
+		}
+		if (err)
+			goto out;
+	}
 
 	err = mv88e6xxx_port_vlan_join(chip, port, vlan->vid, member, warn);
 	if (err) {
@@ -2278,6 +2297,7 @@ static int mv88e6xxx_port_vlan_del(struct dsa_switch *ds, int port,
 		err = mv88e6xxx_port_set_pvid(chip, port, 0);
 		if (err)
 			goto unlock;
+		err = mv88e6xxx_port_vlan_policy_change(ds, port, 0);
 	}
 
 unlock:
@@ -6192,7 +6212,6 @@ static const struct dsa_switch_ops mv88e6xxx_switch_ops = {
 	.port_stp_state_set	= mv88e6xxx_port_stp_state_set,
 	.port_fast_age		= mv88e6xxx_port_fast_age,
 	.port_vlan_filtering	= mv88e6xxx_port_vlan_filtering,
-	.port_vlan_policy_change = mv88e6xxx_port_vlan_policy_change,
 	.port_vlan_add		= mv88e6xxx_port_vlan_add,
 	.port_vlan_del		= mv88e6xxx_port_vlan_del,
 	.port_fdb_add           = mv88e6xxx_port_fdb_add,
