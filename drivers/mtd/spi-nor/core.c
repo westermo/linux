@@ -385,7 +385,7 @@ int spi_nor_read_sr(struct spi_nor *nor, u8 *sr)
 		struct spi_mem_op op =
 			SPI_MEM_OP(SPI_MEM_OP_CMD(SPINOR_OP_RDSR, 0),
 				   SPI_MEM_OP_NO_ADDR,
-				   SPI_MEM_OP_NO_DUMMY,
+				   SPI_MEM_OP_DUMMY(nor->read_dummy, 0),
 				   SPI_MEM_OP_DATA_IN(1, sr, 0));
 
 		if (nor->reg_proto == SNOR_PROTO_8_8_8_DTR) {
@@ -429,7 +429,7 @@ static int spi_nor_read_fsr(struct spi_nor *nor, u8 *fsr)
 		struct spi_mem_op op =
 			SPI_MEM_OP(SPI_MEM_OP_CMD(SPINOR_OP_RDFSR, 0),
 				   SPI_MEM_OP_NO_ADDR,
-				   SPI_MEM_OP_NO_DUMMY,
+				   SPI_MEM_OP_DUMMY(nor->read_dummy, 0),
 				   SPI_MEM_OP_DATA_IN(1, fsr, 0));
 
 		if (nor->reg_proto == SNOR_PROTO_8_8_8_DTR) {
@@ -473,7 +473,7 @@ int spi_nor_read_cr(struct spi_nor *nor, u8 *cr)
 		struct spi_mem_op op =
 			SPI_MEM_OP(SPI_MEM_OP_CMD(SPINOR_OP_RDCR, 0),
 				   SPI_MEM_OP_NO_ADDR,
-				   SPI_MEM_OP_NO_DUMMY,
+				   SPI_MEM_OP_DUMMY(nor->read_dummy, 0),
 				   SPI_MEM_OP_DATA_IN(1, cr, 0));
 
 		spi_nor_spimem_setup_op(nor, &op, nor->reg_proto);

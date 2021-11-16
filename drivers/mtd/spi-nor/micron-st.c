@@ -118,6 +118,55 @@ static struct spi_nor_fixups mt35xu512aba_fixups = {
 	.post_sfdp = mt35xu512aba_post_sfdp_fixup,
 };
 
+
+
+static int n25q00_quad_enable(struct spi_nor *nor)
+{
+	int ret;
+
+	struct spi_mem_op op =
+		SPI_MEM_OP(SPI_MEM_OP_CMD(0x35, 0),
+				SPI_MEM_OP_NO_ADDR,
+				SPI_MEM_OP_NO_DUMMY,
+				SPI_MEM_OP_NO_DATA);
+
+	if (!nor->spimem)
+		return -EOPNOTSUPP;
+
+	spi_nor_spimem_setup_op(nor, &op, nor->write_proto);
+
+	ret = spi_mem_exec_op(nor->spimem, &op);
+	if (ret)
+		dev_dbg(nor->dev, "error %d enable quad mode\n", ret);
+
+	nor->reg_proto = SNOR_PROTO_4_4_4;
+	nor->read_proto = SNOR_PROTO_4_4_4;
+	nor->write_proto = SNOR_PROTO_4_4_4;
+	dev_info(nor->dev, "Enable quad mode\n");
+
+	return ret;
+}
+
+static void n25q00_default_init(struct spi_nor *nor)
+{
+}
+
+static void n25q00_post_sfdp_fixup(struct spi_nor *nor)
+{
+	nor->params->rdsr_dummy = 1;
+	nor->params->rdsr_addr_nbytes = 0;
+
+	nor->reg_proto = SNOR_PROTO_4_4_4;
+	nor->read_proto = SNOR_PROTO_4_4_4;
+	nor->write_proto = SNOR_PROTO_4_4_4;
+	nor->params->quad_enable = n25q00_quad_enable;
+}
+
+static struct spi_nor_fixups n25q00_fixups = {
+	.default_init = n25q00_default_init,
+	.post_sfdp = n25q00_post_sfdp_fixup,
+};
+
 static const struct flash_info micron_parts[] = {
 	{ "mt35xu512aba", INFO(0x2c5b1a, 0, 128 * 1024, 512,
 			       SECT_4K | USE_FSR | SPI_NOR_OCTAL_READ |
@@ -176,7 +225,8 @@ static const struct flash_info st_parts[] = {
 			      SECT_4K | USE_FSR | SPI_NOR_QUAD_READ |
 			      SPI_NOR_HAS_LOCK | SPI_NOR_HAS_TB |
 			      SPI_NOR_4BIT_BP | SPI_NOR_BP3_SR_BIT6 |
-			      NO_CHIP_ERASE) },
+			      NO_CHIP_ERASE)
+	  .fixups = &n25q00_fixups},
 	{ "n25q00a",     INFO(0x20bb21, 0, 64 * 1024, 2048,
 			      SECT_4K | USE_FSR | SPI_NOR_QUAD_READ |
 			      NO_CHIP_ERASE) },
