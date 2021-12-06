@@ -23,10 +23,6 @@
 #include "br_private.h"
 #include "br_private_tunnel.h"
 
-#ifndef ETHERTYPE_PAE
-#define ETHERTYPE_PAE	0x888e	/* EAPOL PAE/802.1x */
-#endif
-
 static int
 br_netif_receive_skb(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
@@ -79,8 +75,6 @@ int br_handle_frame_finish(struct net *net, struct sock *sk, struct sk_buff *skb
 	struct net_bridge_mcast *brmctx;
 	struct net_bridge_vlan *vlan;
 	struct net_bridge *br;
-	struct net_bridge_fdb_entry *fdb_entry;
-	struct ieee802_1x_hdr *dot1x_hdr;
 	u16 vid = 0;
 	u8 state;
 
@@ -97,35 +91,8 @@ int br_handle_frame_finish(struct net *net, struct sock *sk, struct sk_buff *skb
 		goto out;
 
 	if (p->flags & BR_PORT_LOCKED) {
-		if (ntohs(skb->protocol) == ETHERTYPE_PAE) {
-			if (unlikely(is_link_local_ether_addr(eth_hdr(skb)->h_dest))) {
-				u16 fwd_mask = p->br->group_fwd_mask_required;
-				fwd_mask |= p->group_fwd_mask;
-				dot1x_hdr = (struct ieee802_1x_hdr *)skb->data;
-				switch (eth_hdr(skb)->h_dest[5]) {
-				case 0x00:
-					fallthrough;
-				case 0x03:
-					fallthrough;
-				case 0x0E:
-					if (dot1x_hdr->version > 3)
-						goto drop;
-					if (dot1x_hdr->type > 8)
-						goto drop;
-					if (skb->len != ntohs(dot1x_hdr->length)+4)
-						goto drop;
-					break;
-				default:
-					goto drop;
-				}
-			} else {
-				goto drop;
-			}
-		} else {
-			fdb_entry = br_fdb_find_rcu(br, eth_hdr(skb)->h_source, vid);
-			if (!fdb_entry)
-				goto drop;
-		}
+		if (!br_fdb_find_rcu(br, eth_hdr(skb)->h_source, vid))
+			goto drop;
 	}
 
 	nbp_switchdev_frame_mark(p, skb);
