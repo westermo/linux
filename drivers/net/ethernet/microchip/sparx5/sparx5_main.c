@@ -592,6 +592,11 @@ static int sparx5_start(struct sparx5 *sparx5)
 	spx5_wr(ANA_AC_PGID_MISC_CFG_PGID_CPU_COPY_ENA_SET(1),
 		sparx5, ANA_AC_PGID_MISC_CFG(PGID_BCAST));
 
+	/* Enable unknown flood to CPU */
+	for (idx = PGID_UC_FLOOD; idx <= PGID_BCAST; idx++)
+		spx5_wr(ANA_AC_PGID_MISC_CFG_PGID_CPU_COPY_ENA_SET(1),
+			sparx5, ANA_AC_PGID_MISC_CFG(idx));
+
 	/* Recalc injected frame FCS */
 	for (idx = SPX5_PORT_CPU_0; idx <= SPX5_PORT_CPU_1; idx++)
 		spx5_rmw(ANA_CL_FILTER_CTRL_FORCE_FCS_UPDATE_ENA_SET(1),
