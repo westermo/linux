@@ -157,7 +157,8 @@ static int sparx5_mact_get(struct sparx5 *sparx5,
 }
 
 bool sparx5_mact_getnext(struct sparx5 *sparx5,
-			 unsigned char mac[ETH_ALEN], u16 *vid, u32 *pcfg2)
+			 unsigned char mac[ETH_ALEN], u16 *vid, u32 *pcfg2,
+			 u32 access_cfg2, u32 extra_scan_cfg)
 {
 	u32 cfg2;
 	int ret;
@@ -167,8 +168,10 @@ bool sparx5_mact_getnext(struct sparx5 *sparx5,
 	sparx5_mact_select(sparx5, mac, *vid);
 
 	spx5_wr(LRN_SCAN_NEXT_CFG_SCAN_NEXT_IGNORE_LOCKED_ENA_SET(1) |
-		LRN_SCAN_NEXT_CFG_SCAN_NEXT_UNTIL_FOUND_ENA_SET(1),
+		LRN_SCAN_NEXT_CFG_SCAN_NEXT_UNTIL_FOUND_ENA_SET(1) |
+		extra_scan_cfg,
 		sparx5, LRN_SCAN_NEXT_CFG);
+	spx5_wr(access_cfg2, sparx5, LRN_MAC_ACCESS_CFG_2);
 	spx5_wr(LRN_COMMON_ACCESS_CTRL_CPU_ACCESS_CMD_SET
 		(MAC_CMD_FIND_SMALLEST) |
 		LRN_COMMON_ACCESS_CTRL_MAC_TABLE_ACCESS_SHOT_SET(1),

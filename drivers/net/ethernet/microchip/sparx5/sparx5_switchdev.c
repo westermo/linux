@@ -106,6 +106,7 @@ static int sparx5_port_bridge_join(struct sparx5_port *port,
 	struct sparx5 *sparx5 = port->sparx5;
 	struct net_device *ndev = port->ndev;
 	int err;
+	u16 br_pvid;
 
 	if (bitmap_empty(sparx5->bridge_mask, SPX5_PORTS))
 		/* First bridged port */
@@ -124,6 +125,15 @@ static int sparx5_port_bridge_join(struct sparx5_port *port,
 	if (err)
 		goto err_switchdev_offload;
 
+	err = br_vlan_get_pvid(bridge, &br_pvid);
+
+	if (err)
+		goto err_switchdev_offload;
+
+	/* Move port entry from VID 0 to bridge PVID */
+	sparx5_mact_forget(sparx5, port->ndev->dev_addr, NULL_VID);
+	sparx5_mact_learn(sparx5, PGID_CPU, port->ndev->dev_addr, br_pvid);
+
 	/* Port enters in bridge mode therefor don't need to copy to CPU
 	 * frames for multicast in case the bridge is not requesting them
 	 */
@@ -140,6 +150,10 @@ static void sparx5_port_bridge_leave(struct sparx5_port *port,
 				     struct net_device *bridge)
 {
 	struct sparx5 *sparx5 = port->sparx5;
+	unsigned char mac[ETH_ALEN];
+	u16 vid;
+	u32 cfg2;
+	int res, i;
 
 	switchdev_bridge_port_unoffload(port->ndev, NULL, NULL, NULL);
 
@@ -147,10 +161,28 @@ static void sparx5_port_bridge_leave(struct sparx5_port *port,
 	if (bitmap_empty(sparx5->bridge_mask, SPX5_PORTS))
 		sparx5->hw_bridge_dev = NULL;
 
+	/* Move port entry from VID 0 to bridge PVID */
+	sparx5_mact_forget(sparx5, port->ndev->dev_addr, port->pvid);
+	sparx5_mact_learn(sparx5, PGID_CPU, port->ndev->dev_addr, NULL_VID);
+
 	/* Clear bridge vlan settings before updating the port settings */
 	port->vlan_aware = 0;
 	port->pvid = NULL_VID;
 	port->vid = NULL_VID;
+
+	res = 1;
+	vid = 0;
+	memcpy(mac, "\0\0\0\0\0\0", ETH_ALEN);
+	/* Delete any entries pointing towards port */
+	for (i = 0; res; i++) {
+		res = sparx5_mact_getnext(sparx5, mac, &vid, &cfg2,
+					  LRN_MAC_ACCESS_CFG_2_MAC_ENTRY_ADDR_TYPE_SET(0) |
+					  LRN_MAC_ACCESS_CFG_2_MAC_ENTRY_ADDR_SET(port->portno) |
+					  LRN_MAC_ACCESS_CFG_2_MAC_ENTRY_VLD_SET(1),
+					  LRN_SCAN_NEXT_CFG_ADDR_FILTER_ENA_SET(1));
+		if (res)
+			sparx5_mact_forget(sparx5, mac, vid);
+	}
 
 	/* Port enters in host more therefore restore mc list */
 	__dev_mc_sync(port->ndev, sparx5_mc_sync, sparx5_mc_unsync);
