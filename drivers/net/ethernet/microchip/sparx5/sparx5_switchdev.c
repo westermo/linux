@@ -130,6 +130,15 @@ static int sparx5_port_bridge_join(struct sparx5_port *port,
 	if (err)
 		goto err_switchdev_offload;
 
+	if (br_vlan_enabled(bridge)) {
+		port->pvid = br_pvid;
+		port->vlan_aware = 1;
+	} else {
+		br_pvid = 4095;
+		port->pvid = 4095;
+		port->vlan_aware = 0;
+	}
+
 	/* Move port entry from VID 0 to bridge PVID */
 	sparx5_mact_forget(sparx5, port->ndev->dev_addr, NULL_VID);
 	sparx5_mact_learn(sparx5, PGID_CPU, port->ndev->dev_addr, br_pvid);
@@ -384,6 +393,10 @@ static void sparx5_sync_bridge_dev_addr(struct net_device *dev,
 					u16 vid, bool add)
 {
 	int i;
+
+	/* When creating a bridge, use vid 4095 if vlan unaware */
+	if (!br_vlan_enabled(dev))
+		vid = 4095;
 
 	/* First, handle bridge address'es */
 	if (add) {

@@ -4,6 +4,8 @@
  * Copyright (c) 2021 Microchip Technology Inc. and its subsidiaries.
  */
 
+#include <linux/if_bridge.h>
+
 #include "sparx5_main_regs.h"
 #include "sparx5_main.h"
 
@@ -57,6 +59,10 @@ int sparx5_vlan_vid_add(struct sparx5_port *port, u16 vid, bool pvid,
 {
 	struct sparx5 *sparx5 = port->sparx5;
 	int ret;
+
+	/* Ignore setting if vlan unaware */
+	if (!br_vlan_enabled(sparx5->hw_bridge_dev))
+		return 0;
 
 	/* Untagged egress vlan classification */
 	if (untagged && port->vid != vid) {
