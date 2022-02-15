@@ -64,6 +64,8 @@ enum sparx5_vlan_port_type {
 #define PGID_BCAST	       (PGID_BASE + 6)
 #define PGID_CPU	       (PGID_BASE + 7)
 
+#define PGID_TABLE_SIZE	       3290
+
 #define IFH_LEN                9 /* 36 bytes */
 #define NULL_VID               0
 #define SPX5_MACT_PULL_DELAY   (2 * HZ)
@@ -226,6 +228,8 @@ struct sparx5 {
 	int fdma_irq;
 	struct sparx5_rx rx;
 	struct sparx5_tx tx;
+	/* Map for which PGID entries are in use */
+	u8 pgid_map[PGID_TABLE_SIZE];
 };
 
 /* sparx5_switchdev.c */
@@ -294,6 +298,18 @@ struct net_device *sparx5_create_netdev(struct sparx5 *sparx5, u32 portno);
 int sparx5_register_netdevs(struct sparx5 *sparx5);
 void sparx5_destroy_netdevs(struct sparx5 *sparx5);
 void sparx5_unregister_netdevs(struct sparx5 *sparx5);
+
+/* sparx5_pgid.c */
+enum sparx5_pgid_type {
+	SPX5_PGID_RESERVED = 1,
+	SPX5_PGID_MULTICAST,
+	SPX5_PGID_GLAG
+};
+
+void sparx5_pgid_init(struct sparx5 *spx5);
+int sparx5_pgid_alloc(struct sparx5 *spx5, enum sparx5_pgid_type type, u16 *idx);
+int sparx5_pgid_free(struct sparx5 *spx5, u16 idx);
+
 
 /* Clock period in picoseconds */
 static inline u32 sparx5_clk_period(enum sparx5_core_clockfreq cclock)
