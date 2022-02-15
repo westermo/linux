@@ -563,6 +563,7 @@ static void dsa_port_teardown(struct dsa_port *dp)
 	struct devlink_port *dlp = &dp->devlink_port;
 	struct dsa_switch *ds = dp->ds;
 	struct dsa_mac_addr *a, *tmp;
+	struct dsa_vlan *v, *n;
 
 	if (!dp->setup)
 		return;
@@ -599,6 +600,11 @@ static void dsa_port_teardown(struct dsa_port *dp)
 	list_for_each_entry_safe(a, tmp, &dp->mdbs, list) {
 		list_del(&a->list);
 		kfree(a);
+	}
+
+	list_for_each_entry_safe(v, n, &dp->vlans, list) {
+		list_del(&v->list);
+		kfree(v);
 	}
 
 	dp->setup = false;
