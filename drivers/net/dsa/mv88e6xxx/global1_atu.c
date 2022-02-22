@@ -12,6 +12,8 @@
 
 #include "chip.h"
 #include "global1.h"
+#include "port.h"
+#include "mv88e6xxx_switchdev.h"
 
 /* Offset 0x01: ATU FID Register */
 
@@ -120,32 +122,33 @@ static int mv88e6xxx_g1_atu_op(struct mv88e6xxx_chip *chip, u16 fid, u16 op)
 	int err;
 
 	/* FID bits are dispatched all around gradually as more are supported */
-	if (mv88e6xxx_num_databases(chip) > 256) {
-		err = mv88e6xxx_g1_atu_fid_write(chip, fid);
-		if (err)
-			return err;
-	} else {
-		if (mv88e6xxx_num_databases(chip) > 64) {
-			/* ATU DBNum[7:4] are located in ATU Control 15:12 */
-			err = mv88e6xxx_g1_read(chip, MV88E6XXX_G1_ATU_CTL,
-						&val);
+	if (op != MV88E6XXX_G1_ATU_OP_GET_CLR_VIOLATION) {
+		if (mv88e6xxx_num_databases(chip) > 256) {
+			err = mv88e6xxx_g1_atu_fid_write(chip, fid);
 			if (err)
 				return err;
+		} else {
+			if (mv88e6xxx_num_databases(chip) > 64) {
+				/* ATU DBNum[7:4] are located in ATU Control 15:12 */
+				err = mv88e6xxx_g1_read(chip, MV88E6XXX_G1_ATU_CTL,
+							&val);
+				if (err)
+					return err;
 
-			val = (val & 0x0fff) | ((fid << 8) & 0xf000);
-			err = mv88e6xxx_g1_write(chip, MV88E6XXX_G1_ATU_CTL,
-						 val);
-			if (err)
-				return err;
-		} else if (mv88e6xxx_num_databases(chip) > 16) {
-			/* ATU DBNum[5:4] are located in ATU Operation 9:8 */
-			op |= (fid & 0x30) << 4;
+				val = (val & 0x0fff) | ((fid << 8) & 0xf000);
+				err = mv88e6xxx_g1_write(chip, MV88E6XXX_G1_ATU_CTL,
+							 val);
+				if (err)
+					return err;
+			} else if (mv88e6xxx_num_databases(chip) > 16) {
+				/* ATU DBNum[5:4] are located in ATU Operation 9:8 */
+				op |= (fid & 0x30) << 4;
+			}
+
+			/* ATU DBNum[3:0] are located in ATU Operation 3:0 */
+			op |= fid & 0xf;
 		}
-
-		/* ATU DBNum[3:0] are located in ATU Operation 3:0 */
-		op |= fid & 0xf;
 	}
-
 	err = mv88e6xxx_g1_write(chip, MV88E6XXX_G1_ATU_OP,
 				 MV88E6XXX_G1_ATU_OP_BUSY | op);
 	if (err)
@@ -356,6 +359,7 @@ static irqreturn_t mv88e6xxx_g1_atu_prob_irq_thread_fn(int irq, void *dev_id)
 	int spid;
 	int err;
 	u16 val;
+	u16 fid;
 
 	mv88e6xxx_reg_lock(chip);
 
@@ -365,6 +369,10 @@ static irqreturn_t mv88e6xxx_g1_atu_prob_irq_thread_fn(int irq, void *dev_id)
 		goto out;
 
 	err = mv88e6xxx_g1_read(chip, MV88E6XXX_G1_ATU_OP, &val);
+	if (err)
+		goto out;
+
+	err = mv88e6xxx_g1_read(chip, MV88E6352_G1_ATU_FID, &fid);
 	if (err)
 		goto out;
 
@@ -396,6 +404,10 @@ static irqreturn_t mv88e6xxx_g1_atu_prob_irq_thread_fn(int irq, void *dev_id)
 				    "ATU miss violation for %pM portvec %x spid %d\n",
 				    entry.mac, entry.portvec, spid);
 		chip->ports[spid].atu_miss_violation++;
+		if (mv88e6xxx_port_is_locked(chip, chip->ports[spid].port))
+			err = mv88e6xxx_switchdev_handle_atu_miss_violation(chip, chip->ports[spid].port, &entry, fid);
+		if (err)
+			goto out;
 	}
 
 	if (val & MV88E6XXX_G1_ATU_OP_FULL_VIOLATION) {
