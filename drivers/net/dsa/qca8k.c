@@ -2217,7 +2217,7 @@ qca8k_lag_can_offload(struct dsa_switch *ds,
 		      struct netdev_lag_upper_info *info)
 {
 	struct dsa_port *dp;
-	int id, members = 0;
+	int members = 0;
 
 	id = dsa_lag_id(ds->dst, lag);
 	if (id < 0 || id >= ds->num_lag_ids)
@@ -2245,8 +2245,10 @@ qca8k_lag_setup_hash(struct dsa_switch *ds,
 		     struct net_device *lag,
 		     struct netdev_lag_upper_info *info)
 {
+	struct net_device *lag_dev = lag.dev;
 	struct qca8k_priv *priv = ds->priv;
 	bool unique_lag = true;
+	unsigned int i;
 	u32 hash = 0;
 	int i, id;
 
@@ -2267,7 +2269,7 @@ qca8k_lag_setup_hash(struct dsa_switch *ds,
 
 	/* Check if we are the unique configured LAG */
 	dsa_lags_foreach_id(i, ds->dst)
-		if (i != id && dsa_lag_dev(ds->dst, i)) {
+		if (i != lag.id && dsa_lag_by_id(ds->dst, i)) {
 			unique_lag = false;
 			break;
 		}
@@ -2379,6 +2381,33 @@ qca8k_port_lag_join(struct dsa_switch *ds, int port,
 static int
 qca8k_port_lag_leave(struct dsa_switch *ds, int port,
 		     struct net_device *lag)
+{
+	return qca8k_lag_refresh_portmap(ds, port, lag, true);
+}
+
+static void
+qca8k_master_change(struct dsa_switch *ds, const struct net_device *master,
+		    bool operational)
+{
+	struct dsa_port *dp = master->dsa_ptr;
+	struct qca8k_priv *priv = ds->priv;
+
+	/* Ethernet MIB/MDIO is only supported for CPU port 0 */
+	if (dp->index != 0)
+		return;
+
+	mutex_lock(&priv->mgmt_eth_data.mutex);
+	mutex_lock(&priv->mib_eth_data.mutex);
+
+	priv->mgmt_master = operational ? (struct net_device *)master : NULL;
+
+	mutex_unlock(&priv->mib_eth_data.mutex);
+	mutex_unlock(&priv->mgmt_eth_data.mutex);
+}
+
+static int qca8k_connect_tag_protocol(struct dsa_switch *ds,
+				      enum dsa_tag_protocol proto)
+>>>>>>> dedd6a009f41... net: dsa: create a dsa_lag structure
 {
 	return qca8k_lag_refresh_portmap(ds, port, lag, true);
 }
