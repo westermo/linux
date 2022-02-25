@@ -179,7 +179,7 @@ int br_handle_frame_finish(struct net *net, struct sock *sk, struct sk_buff *skb
 			br_multicast_flood(mdst, skb, brmctx, local_rcv, false);
 	}
 
-	if (local_rcv)
+	if (local_rcv && br_opt_get(br, BROPT_LOCAL_RECEIVE))
 		return br_pass_frame_up(skb);
 
 out:

@@ -112,6 +112,7 @@ static inline bool br_multicast_router(const struct net_device *dev)
 
 #if IS_ENABLED(CONFIG_BRIDGE) && IS_ENABLED(CONFIG_BRIDGE_VLAN_FILTERING)
 bool br_vlan_enabled(const struct net_device *dev);
+bool br_local_receive_enabled(const struct net_device *dev);
 int br_vlan_get_pvid(const struct net_device *dev, u16 *p_pvid);
 int br_vlan_get_pvid_rcu(const struct net_device *dev, u16 *p_pvid);
 int br_vlan_get_proto(const struct net_device *dev, u16 *p_proto);
@@ -123,6 +124,11 @@ int br_vlan_get_info_rcu(const struct net_device *dev, u16 vid,
 static inline bool br_vlan_enabled(const struct net_device *dev)
 {
 	return false;
+}
+
+static inline bool br_local_receive_enabled(const struct net_device *dev)
+{
+	return true;
 }
 
 static inline int br_vlan_get_pvid(const struct net_device *dev, u16 *p_pvid)

@@ -157,6 +157,8 @@ void br_forward(const struct net_bridge_port *to,
 		to = backup_port;
 	}
 
+	local_rcv = local_rcv && br_opt_get(to->br, BROPT_LOCAL_RECEIVE);
+
 	if (should_deliver(to, skb)) {
 		if (local_rcv)
 			deliver_clone(to, skb, local_orig);
@@ -235,6 +237,8 @@ void br_flood(struct net_bridge *br, struct sk_buff *skb,
 
 	if (!prev)
 		goto out;
+
+	local_rcv = local_rcv && br_opt_get(br, BROPT_LOCAL_RECEIVE);
 
 	if (local_rcv)
 		deliver_clone(prev, skb, local_orig);
@@ -329,6 +333,8 @@ delivered:
 
 	if (!prev)
 		goto out;
+
+	local_rcv = local_rcv && br_opt_get(prev->br, BROPT_LOCAL_RECEIVE);
 
 	if (local_rcv)
 		deliver_clone(prev, skb, local_orig);
