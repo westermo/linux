@@ -1704,7 +1704,8 @@ static int b53_arl_op(struct b53_device *dev, int op, int port,
 }
 
 int b53_fdb_add(struct dsa_switch *ds, int port,
-		const unsigned char *addr, u16 vid)
+		const unsigned char *addr, u16 vid,
+		struct dsa_db db)
 {
 	struct b53_device *priv = ds->priv;
 	int ret;
@@ -1724,7 +1725,8 @@ int b53_fdb_add(struct dsa_switch *ds, int port,
 EXPORT_SYMBOL(b53_fdb_add);
 
 int b53_fdb_del(struct dsa_switch *ds, int port,
-		const unsigned char *addr, u16 vid)
+		const unsigned char *addr, u16 vid,
+		struct dsa_db db)
 {
 	struct b53_device *priv = ds->priv;
 	int ret;
@@ -1825,7 +1827,8 @@ int b53_fdb_dump(struct dsa_switch *ds, int port,
 EXPORT_SYMBOL(b53_fdb_dump);
 
 int b53_mdb_add(struct dsa_switch *ds, int port,
-		const struct switchdev_obj_port_mdb *mdb)
+		const struct switchdev_obj_port_mdb *mdb,
+		struct dsa_db db)
 {
 	struct b53_device *priv = ds->priv;
 	int ret;
@@ -1845,7 +1848,8 @@ int b53_mdb_add(struct dsa_switch *ds, int port,
 EXPORT_SYMBOL(b53_mdb_add);
 
 int b53_mdb_del(struct dsa_switch *ds, int port,
-		const struct switchdev_obj_port_mdb *mdb)
+		const struct switchdev_obj_port_mdb *mdb,
+		struct dsa_db db)
 {
 	struct b53_device *priv = ds->priv;
 	int ret;
