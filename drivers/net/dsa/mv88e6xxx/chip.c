@@ -1231,6 +1231,7 @@ static u16 mv88e6xxx_port_vlan(struct mv88e6xxx_chip *chip, int dev, int port)
 	struct dsa_switch_tree *dst = ds->dst;
 	struct net_device *br;
 	struct dsa_port *dp;
+	int local_receive = 1;
 	bool found = false;
 	u16 pvlan;
 
@@ -1273,12 +1274,16 @@ static u16 mv88e6xxx_port_vlan(struct mv88e6xxx_chip *chip, int dev, int port)
 
 	pvlan = 0;
 
+	if (br)
+		local_receive = br_local_receive_enabled(br);
+
 	/* Frames from user ports can egress any local DSA links and CPU ports,
-	 * as well as any local member of their bridge group.
+	 * as well as any local member of their bridge group. However, CPU ports
+	 * are omitted if local_receive is reset.
 	 */
 	list_for_each_entry(dp, &dst->ports, list)
 		if (dp->ds == ds &&
-		    (dp->type == DSA_PORT_TYPE_CPU ||
+		    ((dp->type == DSA_PORT_TYPE_CPU && local_receive) ||
 		     dp->type == DSA_PORT_TYPE_DSA ||
 		     (br && dp->bridge_dev == br)))
 			pvlan |= BIT(dp->index);
@@ -2559,6 +2564,27 @@ static void mv88e6xxx_bridge_tx_fwd_unoffload(struct dsa_switch *ds, int port,
 		dev_err(ds->dev, "failed to remap cross-chip Port VLAN: %pe\n",
 			ERR_PTR(err));
 	}
+}
+
+static int mv88e6xxx_set_local_receive(struct dsa_switch *ds, int port,
+				       struct net_device *br, bool enable)
+{
+	struct mv88e6xxx_chip *chip = ds->priv;
+	int err;
+
+	if (!netif_is_bridge_master(br))
+		return 0;
+
+	mv88e6xxx_reg_lock(chip);
+
+	err = mv88e6xxx_bridge_map(chip, br);
+	if (err)
+		goto unlock;
+
+unlock:
+	mv88e6xxx_reg_unlock(chip);
+
+	return 0;
 }
 
 static int mv88e6xxx_software_reset(struct mv88e6xxx_chip *chip)
@@ -6252,6 +6278,7 @@ static const struct dsa_switch_ops mv88e6xxx_switch_ops = {
 	.set_eeprom		= mv88e6xxx_set_eeprom,
 	.get_regs_len		= mv88e6xxx_get_regs_len,
 	.get_regs		= mv88e6xxx_get_regs,
+	.set_local_receive	= mv88e6xxx_set_local_receive,
 	.get_rxnfc		= mv88e6xxx_get_rxnfc,
 	.set_rxnfc		= mv88e6xxx_set_rxnfc,
 	.set_ageing_time	= mv88e6xxx_set_ageing_time,
