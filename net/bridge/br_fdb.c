@@ -667,7 +667,7 @@ static int fdb_fill_info(struct sk_buff *skb, const struct net_bridge *br,
 
 	ndm = nlmsg_data(nlh);
 	ndm->ndm_family	 = AF_BRIDGE;
-	ndm->ndm_pad1    = 0;
+	ndm->ndm_xflags  = 0;
 	ndm->ndm_pad2    = 0;
 	ndm->ndm_flags	 = 0;
 	ndm->ndm_type	 = 0;
@@ -680,6 +680,8 @@ static int fdb_fill_info(struct sk_buff *skb, const struct net_bridge *br,
 		ndm->ndm_flags |= NTF_EXT_LEARNED;
 	if (test_bit(BR_FDB_STICKY, &fdb->flags))
 		ndm->ndm_flags |= NTF_STICKY;
+	if (test_bit(BR_FDB_ENTRY_LOCKED, &fdb->flags))
+		ndm->ndm_xflags |= NFEA_NOTIFY_LOCKED;
 
 	if (nla_put(skb, NDA_LLADDR, ETH_ALEN, &fdb->key.addr))
 		goto nla_put_failure;

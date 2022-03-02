@@ -7,7 +7,7 @@
 
 struct ndmsg {
 	__u8		ndm_family;
-	__u8		ndm_pad1;
+	__u8		ndm_xflags;
 	__u16		ndm_pad2;
 	__s32		ndm_ifindex;
 	__u16		ndm_state;
@@ -195,6 +195,7 @@ enum {
 	NFEA_UNSPEC,
 	NFEA_ACTIVITY_NOTIFY,
 	NFEA_DONT_REFRESH,
+	NFEA_NOTIFY_LOCKED,
 	__NFEA_MAX
 };
 #define NFEA_MAX (__NFEA_MAX - 1)

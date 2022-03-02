@@ -2444,7 +2444,7 @@ static int neigh_fill_info(struct sk_buff *skb, struct neighbour *neigh,
 
 	ndm = nlmsg_data(nlh);
 	ndm->ndm_family	 = neigh->ops->family;
-	ndm->ndm_pad1    = 0;
+	ndm->ndm_xflags  = 0;
 	ndm->ndm_pad2    = 0;
 	ndm->ndm_flags	 = neigh->flags;
 	ndm->ndm_type	 = neigh->type;
@@ -2499,7 +2499,7 @@ static int pneigh_fill_info(struct sk_buff *skb, struct pneigh_entry *pn,
 
 	ndm = nlmsg_data(nlh);
 	ndm->ndm_family	 = tbl->family;
-	ndm->ndm_pad1    = 0;
+	ndm->ndm_xflags  = 0;
 	ndm->ndm_pad2    = 0;
 	ndm->ndm_flags	 = pn->flags | NTF_PROXY;
 	ndm->ndm_type	 = RTN_UNICAST;
@@ -2669,7 +2669,7 @@ static int neigh_valid_dump_req(const struct nlmsghdr *nlh,
 		}
 
 		ndm = nlmsg_data(nlh);
-		if (ndm->ndm_pad1  || ndm->ndm_pad2  || ndm->ndm_ifindex ||
+		if (ndm->ndm_xflags  || ndm->ndm_pad2  || ndm->ndm_ifindex ||
 		    ndm->ndm_state || ndm->ndm_type) {
 			NL_SET_ERR_MSG(extack, "Invalid values in header for neighbor dump request");
 			return -EINVAL;
@@ -2774,7 +2774,7 @@ static int neigh_valid_get_req(const struct nlmsghdr *nlh,
 	}
 
 	ndm = nlmsg_data(nlh);
-	if (ndm->ndm_pad1  || ndm->ndm_pad2  || ndm->ndm_state ||
+	if (ndm->ndm_xflags  || ndm->ndm_pad2  || ndm->ndm_state ||
 	    ndm->ndm_type) {
 		NL_SET_ERR_MSG(extack, "Invalid values in header for neighbor get request");
 		return -EINVAL;

@@ -3877,7 +3877,7 @@ static int nlmsg_populate_fdb_fill(struct sk_buff *skb,
 
 	ndm = nlmsg_data(nlh);
 	ndm->ndm_family  = AF_BRIDGE;
-	ndm->ndm_pad1	 = 0;
+	ndm->ndm_xflags	 = 0;
 	ndm->ndm_pad2    = 0;
 	ndm->ndm_flags	 = flags;
 	ndm->ndm_type	 = 0;
@@ -4255,7 +4255,7 @@ static int valid_fdb_dump_strict(const struct nlmsghdr *nlh,
 	}
 
 	ndm = nlmsg_data(nlh);
-	if (ndm->ndm_pad1  || ndm->ndm_pad2  || ndm->ndm_state ||
+	if (ndm->ndm_xflags  || ndm->ndm_pad2  || ndm->ndm_state ||
 	    ndm->ndm_flags || ndm->ndm_type) {
 		NL_SET_ERR_MSG(extack, "Invalid values in header for fdb dump request");
 		return -EINVAL;
@@ -4444,7 +4444,7 @@ static int valid_fdb_get_strict(const struct nlmsghdr *nlh,
 	}
 
 	ndm = nlmsg_data(nlh);
-	if (ndm->ndm_pad1  || ndm->ndm_pad2  || ndm->ndm_state ||
+	if (ndm->ndm_xflags  || ndm->ndm_pad2  || ndm->ndm_state ||
 	    ndm->ndm_type) {
 		NL_SET_ERR_MSG(extack, "Invalid values in header for fdb get request");
 		return -EINVAL;
