@@ -1344,14 +1344,15 @@ int br_fdb_external_learn_del(struct net_bridge *br, struct net_bridge_port *p,
 	return err;
 }
 
-void br_fdb_offloaded_set(struct net_bridge *br, struct net_bridge_port *p,
-			  const unsigned char *addr, u16 vid, bool offloaded)
+void br_fdb_flags_set(struct net_bridge *br, struct net_bridge_port *p,
+			  const unsigned char *addr, u16 vid, bool offloaded, bool locked)
 {
 	struct net_bridge_fdb_entry *fdb;
 
 	spin_lock_bh(&br->hash_lock);
-
 	fdb = br_fdb_find(br, addr, vid);
+	if (fdb && locked != test_bit(BR_FDB_ENTRY_LOCKED, &fdb->flags))
+		change_bit(BR_FDB_ENTRY_LOCKED, &fdb->flags);
 	if (fdb && offloaded != test_bit(BR_FDB_OFFLOADED, &fdb->flags))
 		change_bit(BR_FDB_OFFLOADED, &fdb->flags);
 

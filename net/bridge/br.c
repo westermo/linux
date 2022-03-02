@@ -171,8 +171,8 @@ static int br_switchdev_event(struct notifier_block *unused,
 			err = notifier_from_errno(err);
 			break;
 		}
-		br_fdb_offloaded_set(br, p, fdb_info->addr,
-				     fdb_info->vid, true);
+		br_fdb_flags_set(br, p, fdb_info->addr,
+				     fdb_info->vid, true, fdb_info->locked);
 		break;
 	case SWITCHDEV_FDB_DEL_TO_BRIDGE:
 		fdb_info = ptr;
@@ -183,8 +183,8 @@ static int br_switchdev_event(struct notifier_block *unused,
 		break;
 	case SWITCHDEV_FDB_OFFLOADED:
 		fdb_info = ptr;
-		br_fdb_offloaded_set(br, p, fdb_info->addr,
-				     fdb_info->vid, fdb_info->offloaded);
+		br_fdb_flags_set(br, p, fdb_info->addr,
+				     fdb_info->vid, fdb_info->offloaded, false);
 		break;
 	case SWITCHDEV_FDB_FLUSH_TO_BRIDGE:
 		fdb_info = ptr;
