@@ -268,6 +268,15 @@ int br_boolopt_toggle(struct net_bridge *br, enum br_boolopt_id opt, bool on,
 	case BR_BOOLOPT_MST_ENABLE:
 		err = br_mst_set_enabled(br, on, extack);
 		break;
+	case BR_BOOLOPT_UNICAST_FLOOD:
+		br_opt_toggle(br, BROPT_UNICAST_FLOOD, on);
+		break;
+	case BR_BOOLOPT_BCAST_FLOOD:
+		br_opt_toggle(br, BROPT_BCAST_FLOOD, on);
+		break;
+	case BR_BOOLOPT_MCAST_FLOOD:
+		br_opt_toggle(br, BROPT_MCAST_FLOOD, on);
+		break;
 	default:
 		/* shouldn't be called with unsupported options */
 		WARN_ON(1);
@@ -286,6 +295,12 @@ int br_boolopt_get(const struct net_bridge *br, enum br_boolopt_id opt)
 		return br_opt_get(br, BROPT_MCAST_VLAN_SNOOPING_ENABLED);
 	case BR_BOOLOPT_MST_ENABLE:
 		return br_opt_get(br, BROPT_MST_ENABLED);
+	case BR_BOOLOPT_UNICAST_FLOOD:
+		return br_opt_get(br, BROPT_UNICAST_FLOOD);
+	case BR_BOOLOPT_BCAST_FLOOD:
+		return br_opt_get(br, BROPT_BCAST_FLOOD);
+	case BR_BOOLOPT_MCAST_FLOOD:
+		return br_opt_get(br, BROPT_MCAST_FLOOD);
 	default:
 		/* shouldn't be called with unsupported options */
 		WARN_ON(1);
