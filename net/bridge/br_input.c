@@ -118,7 +118,8 @@ int br_handle_frame_finish(struct net *net, struct sock *sk, struct sk_buff *skb
 		/* by definition the broadcast is also a multicast address */
 		if (is_broadcast_ether_addr(eth_hdr(skb)->h_dest)) {
 			pkt_type = BR_PKT_BROADCAST;
-			local_rcv = true;
+			if (br_opt_get(br, BROPT_BCAST_FLOOD))
+				local_rcv = true;
 		} else {
 			pkt_type = BR_PKT_MULTICAST;
 			if (br_multicast_rcv(&brmctx, &pmctx, vlan, skb, vid))
@@ -161,12 +162,16 @@ int br_handle_frame_finish(struct net *net, struct sock *sk, struct sk_buff *skb
 			}
 			mcast_hit = true;
 		} else {
-			local_rcv = true;
-			br->dev->stats.multicast++;
+			if (br_opt_get(br, BROPT_MCAST_FLOOD)) {
+				local_rcv = true;
+				br->dev->stats.multicast++;
+			}
 		}
 		break;
 	case BR_PKT_UNICAST:
 		dst = br_fdb_find_rcu(br, eth_hdr(skb)->h_dest, vid);
+		if (!dst && br_opt_get(br, BROPT_UNICAST_FLOOD))
+			local_rcv = true;
 		break;
 	default:
 		break;

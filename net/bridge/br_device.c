@@ -526,6 +526,10 @@ void br_dev_setup(struct net_device *dev)
 	br->bridge_ageing_time = br->ageing_time = BR_DEFAULT_AGEING_TIME;
 	dev->max_mtu = ETH_MAX_MTU;
 
+	br_opt_toggle(br, BROPT_UNICAST_FLOOD, 1);
+	br_opt_toggle(br, BROPT_MCAST_FLOOD, 1);
+	br_opt_toggle(br, BROPT_BCAST_FLOOD, 1);
+
 	br_netfilter_rtable_init(br);
 	br_stp_timer_init(br);
 	br_multicast_init(br);
