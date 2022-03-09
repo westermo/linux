@@ -1369,7 +1369,13 @@ tcpdump_start()
 		capuser="-Z $SUDO_USER"
 	fi
 
-	$ns_cmd tcpdump -e -n -Q in -i $if_name \
+	if [ -z $TCPDUMP_EXTRA_FLAGS ]; then
+		extra_flags=""
+	else
+		extra_flags="$TCPDUMP_EXTRA_FLAGS"
+	fi
+
+	$ns_cmd tcpdump $extra_flags -e -n -Q in -i $if_name \
 		-s 65535 -B 32768 $capuser -w $capfile > "$capout" 2>&1 &
 	cappid=$!
 
