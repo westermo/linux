@@ -69,7 +69,7 @@ static int store_flag(struct net_bridge_port *p, unsigned long v,
 		flags &= ~mask;
 
 	if (flags != p->flags) {
-		err = br_switchdev_set_port_flag(p, flags, mask, &extack);
+		err = br_switchdev_set_dev_flag(p->dev, flags, mask, &extack);
 		if (err) {
 			netdev_err(p->dev, "%s\n", extack._msg);
 			return err;

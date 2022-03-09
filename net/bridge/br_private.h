@@ -2038,7 +2038,7 @@ void nbp_switchdev_frame_mark(const struct net_bridge_port *p,
 			      struct sk_buff *skb);
 bool nbp_switchdev_allowed_egress(const struct net_bridge_port *p,
 				  const struct sk_buff *skb);
-int br_switchdev_set_port_flag(struct net_bridge_port *p,
+int br_switchdev_set_dev_flag(struct net_device *dev,
 			       unsigned long flags,
 			       unsigned long mask,
 			       struct netlink_ext_ack *extack);
@@ -2108,7 +2108,7 @@ static inline bool nbp_switchdev_allowed_egress(const struct net_bridge_port *p,
 	return true;
 }
 
-static inline int br_switchdev_set_port_flag(struct net_bridge_port *p,
+static inline int br_switchdev_set_dev_flag(struct net_device *dev,
 					     unsigned long flags,
 					     unsigned long mask,
 					     struct netlink_ext_ack *extack)

@@ -942,7 +942,7 @@ static int br_setport(struct net_bridge_port *p, struct nlattr *tb[],
 
 	changed_mask = old_flags ^ p->flags;
 
-	err = br_switchdev_set_port_flag(p, p->flags, changed_mask, extack);
+	err = br_switchdev_set_dev_flag(p->dev, p->flags, changed_mask, extack);
 	if (err) {
 		p->flags = old_flags;
 		return err;
