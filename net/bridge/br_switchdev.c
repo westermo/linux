@@ -74,13 +74,13 @@ bool nbp_switchdev_allowed_egress(const struct net_bridge_port *p,
 #define BR_PORT_FLAGS_HW_OFFLOAD (BR_LEARNING | BR_FLOOD | \
 				  BR_MCAST_FLOOD | BR_BCAST_FLOOD | BR_PORT_LOCKED)
 
-int br_switchdev_set_port_flag(struct net_bridge_port *p,
+int br_switchdev_set_dev_flag(struct net_device *dev,
 			       unsigned long flags,
 			       unsigned long mask,
 			       struct netlink_ext_ack *extack)
 {
 	struct switchdev_attr attr = {
-		.orig_dev = p->dev,
+		.orig_dev = dev,
 	};
 	struct switchdev_notifier_port_attr_info info = {
 		.attr = &attr,
@@ -96,7 +96,7 @@ int br_switchdev_set_port_flag(struct net_bridge_port *p,
 	attr.u.brport_flags.mask = mask;
 
 	/* We run from atomic context here */
-	err = call_switchdev_notifiers(SWITCHDEV_PORT_ATTR_SET, p->dev,
+	err = call_switchdev_notifiers(SWITCHDEV_PORT_ATTR_SET, dev,
 				       &info.info, extack);
 	err = notifier_to_errno(err);
 	if (err == -EOPNOTSUPP)
@@ -112,7 +112,7 @@ int br_switchdev_set_port_flag(struct net_bridge_port *p,
 	attr.id = SWITCHDEV_ATTR_ID_PORT_BRIDGE_FLAGS;
 	attr.flags = SWITCHDEV_F_DEFER;
 
-	err = switchdev_port_attr_set(p->dev, &attr, extack);
+	err = switchdev_port_attr_set(dev, &attr, extack);
 	if (err) {
 		if (extack && !extack->_msg)
 			NL_SET_ERR_MSG_MOD(extack,
