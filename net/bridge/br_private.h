@@ -452,6 +452,7 @@ enum net_bridge_opts {
 	BROPT_UNICAST_FLOOD,
 	BROPT_BCAST_FLOOD,
 	BROPT_MCAST_FLOOD,
+	BROPT_MCAST_FLOOD_MROUTERS_ONLY,
 };
 
 struct net_bridge {
@@ -814,6 +815,7 @@ void br_forward(const struct net_bridge_port *to, struct sk_buff *skb,
 		bool local_rcv, bool local_orig);
 int br_forward_finish(struct net *net, struct sock *sk, struct sk_buff *skb);
 void br_flood(struct net_bridge *br, struct sk_buff *skb,
+	      struct net_bridge_mcast *brmctx,
 	      enum br_pkt_type pkt_type, bool local_rcv, bool local_orig);
 
 /* return true if both source port and dest port are isolated */
@@ -1403,6 +1405,12 @@ static inline bool br_multicast_toggle_global_vlan(struct net_bridge_vlan *vlan,
 						   bool on)
 {
 	return false;
+}
+
+static inline struct net_bridge_port *
+br_multicast_rport_from_node_skb(struct hlist_node *rp, struct sk_buff *skb)
+{
+	return NULL;
 }
 
 static inline bool

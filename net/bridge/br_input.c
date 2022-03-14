@@ -195,7 +195,7 @@ int br_handle_frame_finish(struct net *net, struct sock *sk, struct sk_buff *skb
 		if (pkt_type == BR_PKT_UNICAST && br_opt_get(br, BROPT_UNICAST_FLOOD))
 			local_rcv = true;
 		if (!mcast_hit)
-			br_flood(br, skb, pkt_type, local_rcv, false);
+			br_flood(br, skb, brmctx, pkt_type, local_rcv, false);
 		else
 			br_multicast_flood(mdst, skb, brmctx, local_rcv, false);
 	}

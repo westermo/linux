@@ -277,6 +277,9 @@ int br_boolopt_toggle(struct net_bridge *br, enum br_boolopt_id opt, bool on,
 	case BR_BOOLOPT_MCAST_FLOOD:
 		br_opt_toggle(br, BROPT_MCAST_FLOOD, on);
 		break;
+	case BR_BOOLOPT_MCAST_FLOOD_MROUTERS_ONLY:
+		br_opt_toggle(br, BROPT_MCAST_FLOOD_MROUTERS_ONLY, on);
+		break;
 	default:
 		/* shouldn't be called with unsupported options */
 		WARN_ON(1);
@@ -301,6 +304,8 @@ int br_boolopt_get(const struct net_bridge *br, enum br_boolopt_id opt)
 		return br_opt_get(br, BROPT_BCAST_FLOOD);
 	case BR_BOOLOPT_MCAST_FLOOD:
 		return br_opt_get(br, BROPT_MCAST_FLOOD);
+	case BR_BOOLOPT_MCAST_FLOOD_MROUTERS_ONLY:
+		return br_opt_get(br, BROPT_MCAST_FLOOD_MROUTERS_ONLY);
 	default:
 		/* shouldn't be called with unsupported options */
 		WARN_ON(1);
