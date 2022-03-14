@@ -7,13 +7,16 @@
 # Verify forwarding (default flooding behavior) to all ports of unknown
 # multicast: MAC, IPv4, IPv6.
 #
+# Verify selective multicast forwarding (strict mdb), when bridge port
+# mcast_flood is disabled, of known MAC, IPv4, IPv6 traffic.
+#
 # Note: this test completely disables IPv6 auto-configuration to avoid
 #       any type of dynamic behavior outside of MLD and IGMP protocols.
 #       Static IPv6 addresses are used to ensure consistent behavior,
 #       even in the startup phase when multicast snooping is enabled.
 #
 
-ALL_TESTS="mdb_add_del_test mdb_compat_fwd_test"
+ALL_TESTS="mdb_add_del_test mdb_compat_fwd_test mdb_mac_fwd_test mdb_ip4_fwd_test mdb_ip6_fwd_test"
 NUM_NETIFS=4
 
 SRC_PORT="1234"
@@ -224,6 +227,89 @@ mdb_compat_fwd_test()
 	do_compat_fwd "$h2"
 	do_compat_fwd "br0"
 }
+
+do_mdb_fwd()
+{
+	type=$1
+	port=$2
+	swp=$port
+	src=$3
+	pass_grp=$4
+	fail_grp=$5
+	pass_pkt=$6
+	fail_pkt=$7
+	RET=0
+
+	if [ "$type" = "MAC" ]; then
+		flag="permanent"
+	else
+		flag=""
+		spt=".$SRC_PORT"
+		dpt=".$DST_PORT"
+	fi
+	if [ "$port" = "$h2" ]; then
+		swp=$swp2
+	fi
+
+	# Disable flooding of unknown multicast, strict MDB forwarding
+	bridge link set dev "$swp1" mcast_flood off
+	bridge link set dev "$swp2" mcast_flood off
+	bridge link set dev "br0"   mcast_flood off self
+
+	# Static filter only to this port
+	bridge mdb add dev br0 port "$swp" grp "$pass_grp" $flag
+	check_err $? "Failed adding $type multicast group $pass_grp to bridge port $swp"
+
+	tcpdump_start "$port"
+
+	# Real data we're expecting
+	$MZ -q "$h1" "$pass_pkt"
+	# This should not pass
+	$MZ -q "$h1" "$fail_pkt"
+
+	sleep 1
+	tcpdump_stop "$port"
+
+	tcpdump_show "$port" |grep -q "$src$spt > $pass_grp$dpt"
+	check_err $? "Failed forwarding $type multicast $pass_grp from $h1 to port $port"
+
+	tcpdump_show "$port" |grep -q "$src$spt > $fail_grp$dpt"
+	check_err_fail 1 $? "Received $type multicast group $fail_grp from $h1 to port $port"
+
+	bridge mdb del dev br0 port "$swp" grp "$pass_grp"
+
+	log_test "MDB forward $type multicast to bridge port $port"
+	tcpdump_cleanup "$port"
+}
+
+#
+# Forwarding of known MAC multicast according to mdb, verify blocking
+# unknown MAC multicast (flood off)
+#
+mdb_mac_fwd_test()
+{
+	do_mdb_fwd MAC "br0" $SRC_ADDR_MAC $PASS_GRP_MAC $FAIL_GRP_MAC "$PASS_PKT_MAC" "$FAIL_PKT_MAC"
+	do_mdb_fwd MAC "$h2" $SRC_ADDR_MAC $PASS_GRP_MAC $FAIL_GRP_MAC "$PASS_PKT_MAC" "$FAIL_PKT_MAC"
+}
+
+#
+# Forwarding of known IPv4 UDP multicast according to mdb, verify
+# blocking unknown IPv4 UDP multicast (flood off)
+#
+mdb_ip4_fwd_test()
+{
+	do_mdb_fwd IPv4 br0 $SRC_ADDR_IP4 $PASS_GRP_IP4 $FAIL_GRP_IP4 "$PASS_PKT_IP4" "$FAIL_PKT_IP4"
+	do_mdb_fwd IPv4 $h2 $SRC_ADDR_IP4 $PASS_GRP_IP4 $FAIL_GRP_IP4 "$PASS_PKT_IP4" "$FAIL_PKT_IP4"
+}
+
+#
+# Forwarding of known IPv6 UDP multicast according to mdb, verify
+# blocking unknown IPv6 UDP multicast (flood off)
+#
+mdb_ip6_fwd_test()
+{
+	do_mdb_fwd IPv6 br0 $SRC_ADDR_IP6 $PASS_GRP_IP6 $FAIL_GRP_IP6 "$PASS_PKT_IP6" "$FAIL_PKT_IP6"
+	do_mdb_fwd IPv6 $h2 $SRC_ADDR_IP6 $PASS_GRP_IP6 $FAIL_GRP_IP6 "$PASS_PKT_IP6" "$FAIL_PKT_IP6"
 }
 
 trap cleanup EXIT
