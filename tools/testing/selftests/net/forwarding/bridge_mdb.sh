@@ -10,10 +10,6 @@
 # Verify selective multicast forwarding (strict mdb), when bridge port
 # mcast_flood is disabled, of known MAC, IPv4, IPv6 traffic.
 #
-# Note: due to limitations in tcpdump_start(), only one interface can be
-#       dumped.  Future extensions should check for the negative case,
-#       i.e., mdb says fwd to br0 then check no mcast to $h2
-#
 
 ALL_TESTS="mdb_add_del_test mdb_compat_fwd_test mdb_mac_fwd_test mdb_ip4_fwd_test mdb_ip6_fwd_test"
 NUM_NETIFS=4
@@ -69,6 +65,16 @@ h2_destroy()
 	simple_if_fini $h2 192.0.2.2/24 2001:db8:1::2/64
 }
 
+h3_create()
+{
+	simple_if_init $h3 192.0.2.3/24 2001:db8:1::3/64
+}
+
+h3_destroy()
+{
+	simple_if_fini $h3 192.0.2.3/24 2001:db8:1::3/64
+}
+
 switch_create()
 {
 	# Enable multicast filtering w/ querier, reduce query response
@@ -78,10 +84,12 @@ switch_create()
 
 	ip link set dev $swp1 master br0
 	ip link set dev $swp2 master br0
+	ip link set dev $swp3 master br0
 
 	ip link set dev br0 up
 	ip link set dev $swp1 up
 	ip link set dev $swp2 up
+	ip link set dev $swp3 up
 
 	# Initial delay when bridge floods mcast: QRV * QIs = 3 * 200
 	sleep 6
@@ -89,6 +97,7 @@ switch_create()
 
 switch_destroy()
 {
+	ip link set dev $swp3 down
 	ip link set dev $swp2 down
 	ip link set dev $swp1 down
 
@@ -103,10 +112,14 @@ setup_prepare()
 	swp2=${NETIFS[p3]}
 	h2=${NETIFS[p4]}
 
+	swp3=${NETIFS[p5]}
+	h3=${NETIFS[p6]}
+
 	vrf_prepare
 
 	h1_create
 	h2_create
+	h3_create
 
 	switch_create
 }
@@ -117,6 +130,7 @@ cleanup()
 
 	switch_destroy
 
+	h3_destroy
 	h2_destroy
 	h1_destroy
 
@@ -232,11 +246,15 @@ do_mdb_fwd()
 	fi
 	if [ "$port" = "$h2" ]; then
 		swp=$swp2
+		nop="$h3"
+	else
+		nop="$h2"
 	fi
 
 	# Disable flooding of unknown multicast, strict MDB forwarding
 	bridge link set dev "$swp1" mcast_flood off
 	bridge link set dev "$swp2" mcast_flood off
+	bridge link set dev "$swp3" mcast_flood off
 	bridge link set dev "br0"   mcast_flood off self
 
 	# Static filter only to this port
@@ -244,6 +262,7 @@ do_mdb_fwd()
 	check_err $? "Failed adding $type multicast group $pass_grp to bridge port $swp"
 
 	tcpdump_start "$port"
+	tcpdump_start "$nop"
 
 	# Real data we're expecting
 	$MZ -q "$h1" "$pass_pkt"
@@ -251,6 +270,7 @@ do_mdb_fwd()
 	$MZ -q "$h1" "$fail_pkt"
 
 	sleep 1
+	tcpdump_stop "$nop"
 	tcpdump_stop "$port"
 
 	tcpdump_show "$port" |grep -q "$src$spt > $pass_grp$dpt"
@@ -258,6 +278,12 @@ do_mdb_fwd()
 
 	tcpdump_show "$port" |grep -q "$src$spt > $fail_grp$dpt"
 	check_err_fail 1 $? "Received $type multicast group $fail_grp from $h1 to port $port"
+
+	# Verify we don't get multicast to the canary port
+	tcpdump_show "$nop" |grep -q "$src$spt > $pass_grp$dpt"
+	check_err_fail 1 $? "Received $type multicast group $pass_grp from $h1 to port $nop"
+	tcpdump_show "$nop" |grep -q "$src$spt > $fail_grp$dpt"
+	check_err_fail 1 $? "Received $type multicast group $fail_grp from $h1 to port $nop"
 
 	bridge mdb del dev br0 port "$swp" grp "$pass_grp"
 
