@@ -7,9 +7,15 @@
 ALL_TESTS="mdb_add_del_test"
 NUM_NETIFS=2
 
-TEST_GROUP_IP4="225.1.2.3"
-TEST_GROUP_IP6="ff02::42"
-TEST_GROUP_MAC="01:00:01:c0:ff:ee"
+PASS_GRP_IP4="225.1.2.3"
+FAIL_GRP_IP4="225.1.2.4"
+
+PASS_GRP_MAC="01:00:01:c0:ff:ee"
+FAIL_GRP_MAC="01:00:01:c0:ff:ef"
+
+PASS_GRP_IP6="ff02::42"
+FAIL_GRP_IP6="ff02::43"
+
 
 source lib.sh
 
@@ -88,9 +94,9 @@ do_mdb_add_del()
 
 mdb_add_del_test()
 {
-	do_mdb_add_del $TEST_GROUP_MAC permanent
-	do_mdb_add_del $TEST_GROUP_IP4
-	do_mdb_add_del $TEST_GROUP_IP6
+	do_mdb_add_del $PASS_GRP_MAC permanent
+	do_mdb_add_del $PASS_GRP_IP4
+	do_mdb_add_del $PASS_GRP_IP6
 }
 
 trap cleanup EXIT
