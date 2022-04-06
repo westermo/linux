@@ -11,6 +11,11 @@
 #include <linux/types.h>
 #include <net/pkt_sched.h>
 
+#include "sparx5_ui_qos.h"
+
+/* Number of priority queues */
+#define SPX5_PRIOS 8
+
 /* Number of Layers */
 #define SPX5_HSCH_LAYER_CNT 3
 
@@ -38,6 +43,9 @@
 
 /* Dwrr */
 #define SPX5_DWRR_COST_MAX 63
+
+struct sparx5;
+struct sparx5_port;
 
 struct sparx5_shaper {
 	u32 mode;
@@ -81,8 +89,38 @@ int sparx5_tc_ets_add(struct sparx5_port *port,
 
 int sparx5_tc_ets_del(struct sparx5_port *port);
 
-struct sparx5;
-struct sparx5_port;
+/*******************************************************************************
+ * FP (Frame Preemption - 802.1Qbu/802.3br)
+ ******************************************************************************/
+struct sparx5_fp_port_conf {
+	u8 admin_status;        /* IEEE802.1Qbu: framePreemptionStatusTable */
+	bool enable_tx;         /* IEEE802.3br: aMACMergeEnableTx */
+	bool verify_disable_tx; /* IEEE802.3br: aMACMergeVerifyDisableTx */
+	u8 verify_time;         /* IEEE802.3br: aMACMergeVerifyTime [msec] */
+	u8 add_frag_size;       /* IEEE802.3br: aMACMergeAddFragSize */
+};
+
+int sparx5_fp_set(struct sparx5_port *port,
+		   struct sparx5_fp_port_conf *conf);
+
+int sparx5_fp_get(struct sparx5_port *port,
+		   struct sparx5_fp_port_conf *conf);
+
+int sparx5_fp_status(struct sparx5_port *port,
+		      struct sparx5_qos_fp_port_status *status);
+
+/*******************************************************************************
+ * QoS port notification
+ ******************************************************************************/
+int sparx5_qos_port_event(struct net_device *dev, unsigned long event);
+
+/*******************************************************************************
+ * QOS Port configuration
+ ******************************************************************************/
+int sparx5_qos_port_conf_get(const struct sparx5_port *const port,
+			     struct sparx5_qos_port_conf *const conf);
+int sparx5_qos_port_conf_set(struct sparx5_port *const port,
+			     struct sparx5_qos_port_conf *const conf);
 
 /*******************************************************************************
  * TAS (Time Aware Shaper - 802.1Qbv)

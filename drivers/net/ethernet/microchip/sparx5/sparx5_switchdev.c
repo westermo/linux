@@ -270,6 +270,8 @@ static int sparx5_netdevice_port_event(struct net_device *dev,
 	if (!sparx5_netdevice_check(dev))
 		return 0;
 
+	sparx5_qos_port_event(dev, event);
+
 	switch (event) {
 	case NETDEV_CHANGEUPPER:
 		err = sparx5_port_changeupper(dev, ptr);

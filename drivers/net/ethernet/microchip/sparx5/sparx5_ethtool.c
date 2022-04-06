@@ -9,6 +9,7 @@
 #include "sparx5_main_regs.h"
 #include "sparx5_main.h"
 #include "sparx5_port.h"
+#include "sparx5_qos.h"
 
 /* Index of ANA_AC port counters */
 #define SPX5_PORT_POLICER_DROPS 0

@@ -6,8 +6,12 @@
 
 #include <net/pkt_cls.h>
 
+#include <linux/iopoll.h>
+#include <linux/genetlink.h>
+
 #include "sparx5_main.h"
 #include "sparx5_qos.h"
+#include "sparx5_port.h"
 
 #define P(X, Y) \
 	seq_printf(m, "%-20s: %12d\n", X, Y)
@@ -389,17 +393,6 @@ static int sparx5_leak_groups_init(struct sparx5 *sparx5)
 	return 0;
 }
 
-int sparx5_qos_init(struct sparx5 *sparx5)
-{
-	int ret;
-
-	ret = sparx5_leak_groups_init(sparx5);
-	if (ret < 0)
-		return ret;
-
-	return 0;
-}
-
 int sparx5_tc_mqprio_add(struct net_device *ndev, u8 num_tc)
 {
 	int i;
@@ -605,6 +598,353 @@ static void sparx5_new_base_time(struct sparx5 *sparx5,
 		"nr_of_cycles   %20lld\n",
 		cycle_time, org_base_time, current_time, threshold_time,
 		new_time, nr_of_cycles);
+}
+
+/*******************************************************************************
+ * QOS Port configuration
+ ******************************************************************************/
+int sparx5_qos_port_conf_get(const struct sparx5_port *const port,
+			     struct sparx5_qos_port_conf *const conf)
+{
+	*conf = port->qos_port_conf;
+	return 0;
+}
+
+int sparx5_qos_port_conf_set(struct sparx5_port *const port,
+			     struct sparx5_qos_port_conf *const conf)
+{
+	u32 pcp, dei, prio, dpl, retval = 0, e_mode;
+
+	/* Setup port ingress default DEI and PCP */
+	spx5_rmw(ANA_CL_VLAN_CTRL_PORT_PCP_SET(conf->i_default_pcp) |
+			 ANA_CL_VLAN_CTRL_PORT_DEI_SET(conf->i_default_dei),
+			 ANA_CL_VLAN_CTRL_PORT_PCP |
+			 ANA_CL_VLAN_CTRL_PORT_DEI,
+			 port->sparx5,
+			 ANA_CL_VLAN_CTRL(port->portno));
+
+	/* Setup port ingress default DPL and Priority */
+	spx5_rmw(ANA_CL_QOS_CFG_DEFAULT_QOS_VAL_SET(conf->i_default_prio) |
+			 ANA_CL_QOS_CFG_DEFAULT_DP_VAL_SET(conf->i_default_dpl) |
+			 ANA_CL_QOS_CFG_PCP_DEI_QOS_ENA_SET(conf->i_mode.tag_map_enable) |
+			 ANA_CL_QOS_CFG_DSCP_QOS_ENA_SET(conf->i_mode.dscp_map_enable),
+			 ANA_CL_QOS_CFG_DEFAULT_QOS_VAL |
+			 ANA_CL_QOS_CFG_DEFAULT_DP_VAL |
+			 ANA_CL_QOS_CFG_PCP_DEI_QOS_ENA |
+			 ANA_CL_QOS_CFG_DSCP_QOS_ENA,
+			 port->sparx5,
+			 ANA_CL_QOS_CFG(port->portno));
+
+	/* Setup port ingress mapping between [PCP,DEI] and [Priority]. */
+	/* Setup port ingress mapping between [PCP,DEI] and [DPL]. */
+	for (pcp = 0; pcp < PCP_COUNT; pcp++) {
+		for (dei = 0; dei < DEI_COUNT; dei++) {
+			prio = conf->i_pcp_dei_prio_dpl_map[pcp][dei].prio;
+			dpl = conf->i_pcp_dei_prio_dpl_map[pcp][dei].dpl;
+
+			spx5_rmw(ANA_CL_PCP_DEI_MAP_CFG_PCP_DEI_DP_VAL_SET(dpl) |
+					 ANA_CL_PCP_DEI_MAP_CFG_PCP_DEI_QOS_VAL_SET(prio),
+					 ANA_CL_PCP_DEI_MAP_CFG_PCP_DEI_DP_VAL |
+					 ANA_CL_PCP_DEI_MAP_CFG_PCP_DEI_QOS_VAL,
+					 port->sparx5,
+					 ANA_CL_PCP_DEI_MAP_CFG(port->portno, (8 * dei + pcp)));
+		}
+	}
+
+	dei = (conf->e_mode == SPARX5_E_MODE_DEFAULT ? conf->e_default_dei : 0);
+	/* Setup port egress default DEI and PCP */
+	spx5_rmw(REW_PORT_VLAN_CFG_PORT_PCP_SET(conf->e_default_pcp) |
+		 REW_PORT_VLAN_CFG_PORT_DEI_SET(dei),
+		 REW_PORT_VLAN_CFG_PORT_PCP |
+		 REW_PORT_VLAN_CFG_PORT_DEI,
+		 port->sparx5,
+		 REW_PORT_VLAN_CFG(port->portno));
+
+	/* Setup port egress mapping between [Priority] and [PCP,DEI]. */
+	/* Setup port egress mapping between [DPL] and [PCP,DEI]. */
+	for (prio = 0; prio < PRIO_COUNT; prio++) {
+		pcp = conf->e_prio_dpl_pcp_dei_map[prio][0].pcp;
+		spx5_rmw(REW_PCP_MAP_DE0_PCP_DE0_SET(pcp),
+			 REW_PCP_MAP_DE0_PCP_DE0,
+			 port->sparx5,
+			 REW_PCP_MAP_DE0(port->portno, prio));
+
+		pcp = conf->e_prio_dpl_pcp_dei_map[prio][1].pcp;
+		spx5_rmw(REW_PCP_MAP_DE1_PCP_DE1_SET(pcp),
+			 REW_PCP_MAP_DE1_PCP_DE1,
+			 port->sparx5,
+			 REW_PCP_MAP_DE1(port->portno, prio));
+
+		dei = conf->e_prio_dpl_pcp_dei_map[prio][0].dei;
+		spx5_rmw(REW_DEI_MAP_DE0_DEI_DE0_SET(pcp),
+			 REW_DEI_MAP_DE0_DEI_DE0,
+			 port->sparx5,
+			 REW_DEI_MAP_DE0(port->portno, prio));
+
+		dei = conf->e_prio_dpl_pcp_dei_map[prio][1].dei;
+		spx5_rmw(REW_DEI_MAP_DE1_DEI_DE1_SET(pcp),
+			 REW_DEI_MAP_DE1_DEI_DE1,
+			 port->sparx5,
+			 REW_DEI_MAP_DE1(port->portno, prio));
+	}
+
+	/* Setup the egress TAG PCP,DEI generation mode */
+	switch (conf->e_mode) {
+	case SPARX5_E_MODE_DEFAULT:
+		e_mode = 1; /* PORT_PCP/PORT_DEI */
+	break;
+	case SPARX5_E_MODE_MAPPED:
+		e_mode = 2; /* MAPPED */
+	break;
+	default:
+		e_mode = 0; /* Classified PCP/DEI */
+	break;
+	}
+	spx5_rmw(REW_TAG_CTRL_TAG_PCP_CFG_SET(e_mode) |
+		 REW_TAG_CTRL_TAG_DEI_CFG_SET(e_mode),
+		 REW_TAG_CTRL_TAG_PCP_CFG |
+		 REW_TAG_CTRL_TAG_DEI_CFG,
+		 port->sparx5,
+		 REW_TAG_CTRL(port->portno));
+
+	port->qos_port_conf = *conf;
+	return retval;
+}
+
+/*******************************************************************************
+ * FP (Frame Preemption - 802.1Qbu/802.3br)
+ ******************************************************************************/
+static void sparx5_fp_enable(struct sparx5_port *port,
+			     struct sparx5_fp_port_conf *c,
+			     bool enable_tx)
+{
+	u32 unit, val, i;
+
+	/* TBD: Port reset is perhaps needed when disabling FP */
+
+	/* Disable preemptible queues */
+	for (i = 0; i < 8; i++) {
+		spx5_rmw(HSCH_HSCH_L0_CFG_P_QUEUES_SET(0),
+			 HSCH_HSCH_L0_CFG_P_QUEUES,
+			 port->sparx5,
+			 HSCH_HSCH_L0_CFG(SPX5_HSCH_L0_GET_IDX(port->portno, i)));
+	}
+
+	SPX5_DEV_WR(DEV2G5_ENABLE_CONFIG_MM_RX_ENA_SET(1) |
+		    DEV2G5_ENABLE_CONFIG_MM_TX_ENA_SET(enable_tx) |
+		    DEV2G5_ENABLE_CONFIG_KEEP_S_AFTER_D_SET(0),
+		    port,
+		    ENABLE_CONFIG);
+
+	SPX5_DEV_RD(val, port, ENABLE_CONFIG);
+
+	switch (port->conf.speed) {
+	case SPEED_10:
+	case SPEED_100:
+	case SPEED_1000:
+	case SPEED_5000:
+		unit = 0;
+		break;
+	default:
+		unit = 2;
+		break;
+	}
+
+	SPX5_DEV_WR(DEV2G5_VERIF_CONFIG_PRM_VERIFY_DIS_SET(c->verify_disable_tx) |
+		    DEV2G5_VERIF_CONFIG_PRM_VERIFY_TIME_SET(c->verify_time) |
+		    DEV2G5_VERIF_CONFIG_VERIF_TIMER_UNITS_SET(unit),
+		    port,
+		    VERIF_CONFIG);
+
+	spx5_wr(DSM_PREEMPT_CFG_P_MIN_SIZE_SET(c->add_frag_size),
+		port->sparx5,
+		DSM_PREEMPT_CFG(port->portno));
+
+	spx5_wr(DSM_IPG_SHRINK_CFG_IPG_SHRINK_ENA_SET(enable_tx),
+		port->sparx5,
+		DSM_IPG_SHRINK_CFG(port->portno));
+
+	for (i = 0; i < 8; i++) {
+		val = (enable_tx && (c->admin_status & BIT(i))) ? 0xff : 0;
+		spx5_rmw(HSCH_HSCH_L0_CFG_P_QUEUES_SET(val),
+			 HSCH_HSCH_L0_CFG_P_QUEUES,
+			 port->sparx5,
+			 HSCH_HSCH_L0_CFG(SPX5_HSCH_L0_GET_IDX(port->portno, i)));
+	}
+}
+
+static void sparx5_fp_update(struct sparx5_port *port, struct sparx5_fp_port_conf *c)
+{
+	if (c->enable_tx &&
+	    netif_carrier_ok(port->ndev) &&
+	    port->conf.speed >= SPEED_100 &&
+	    port->conf.duplex == DUPLEX_FULL)
+		sparx5_fp_enable(port, c, true);
+	else
+		sparx5_fp_enable(port, c, false);
+}
+
+int sparx5_fp_set(struct sparx5_port *port,
+		  struct sparx5_fp_port_conf *c)
+{
+	bool unlock = false;
+
+	netdev_dbg(port->ndev,
+		   "sparx5_fp_set() as %u et %d vdt %d vt %u afs %u\n",
+		   c->admin_status,
+		   c->enable_tx,
+		   c->verify_disable_tx,
+		   c->verify_time,
+		   c->add_frag_size);
+
+	if (c->verify_time < 1 || c->verify_time > 128) {
+		netdev_err(port->ndev, "Invalid verify_time (%u)\n",
+			   c->verify_time);
+		return -EINVAL;
+	}
+
+	if (c->add_frag_size > 3) {
+		netdev_err(port->ndev, "Invalid add_frag_size (%u)\n",
+			   c->add_frag_size);
+		return -EINVAL;
+	}
+
+	/* Manually take rtnl_lock() if it isn't locked.
+	 * This can be removed later when frame preemption is controlled by
+	 * a standard user space tool such as ethtool, which aquires the lock.
+	 */
+	if (!rtnl_is_locked()) {
+		unlock = true;
+		rtnl_lock();
+	}
+
+	sparx5_fp_update(port, c);
+	port->fp = *c;
+	if (unlock)
+		rtnl_unlock();
+	return 0;
+}
+
+int sparx5_fp_get(struct sparx5_port *port,
+		  struct sparx5_fp_port_conf *c)
+{
+	bool unlock = false;
+
+	if (!rtnl_is_locked()) {
+		unlock = true;
+		rtnl_lock();
+	}
+
+	*c = port->fp;
+
+	if (unlock)
+		rtnl_unlock();
+	return 0;
+}
+
+int sparx5_fp_status(struct sparx5_port *port,
+		     struct sparx5_qos_fp_port_status *s)
+{
+	bool unlock = false;
+	u32 status, v;
+
+	if (!rtnl_is_locked()) {
+		unlock = true;
+		rtnl_lock();
+	}
+
+	SPX5_DEV_RD(status, port, MM_STATUS);
+	s->preemption_active = !!DEV2G5_MM_STATUS_PRMPT_ACTIVE_STATUS_GET(status);
+
+	if (port->fp.verify_disable_tx) {
+		v = SPARX5_MM_STATUS_VERIFY_DISABLED;
+	} else {
+		v = DEV2G5_MM_STATUS_PRMPT_VERIFY_STATE_GET(status);
+		/* DEV2G5 does not support full state */
+		v = sparx5_is_baser(port->conf.portmode) || v == 0 ? v : (v + 2);
+	}
+
+	s->status_verify = v;
+
+	if (unlock)
+		rtnl_unlock();
+
+	return 0;
+}
+
+static int sparx5_fp_init(struct sparx5 *sparx5)
+{
+	struct sparx5_port *port;
+	void __iomem *devinst;
+	u32 val, pix, dev;
+	u8 vector;
+	int p, i;
+
+	/* Initialize frame-preemption and sync config with defaults */
+	for (p = 0; p < SPX5_PORTS; p++) {
+		port = sparx5->ports[p];
+		if (!port)
+			continue;
+
+		/* Always enable MAC-MERGE Layer Receive block */
+		SPX5_DEV_RMW(DEV2G5_ENABLE_CONFIG_MM_RX_ENA_SET(1),
+			     DEV2G5_ENABLE_CONFIG_MM_RX_ENA,
+			     port,
+			     ENABLE_CONFIG);
+
+		SPX5_DEV_RD(val, port, ENABLE_CONFIG);
+
+		if (sparx5_is_baser(port->conf.portmode)) {
+			pix = sparx5_port_dev_index(port->portno);
+			dev = sparx5_to_high_dev(port->portno);
+			devinst = spx5_inst_get(port->sparx5, dev, pix);
+			spx5_inst_rmw(DEV10G_MAC_ADV_CHK_CFG_SFD_CHK_ENA_SET(0),
+				      DEV10G_MAC_ADV_CHK_CFG_SFD_CHK_ENA,
+				      devinst,
+				      DEV10G_MAC_ADV_CHK_CFG(0));
+		}
+
+		vector = 0;
+		for (i = 0; i < 8; i++) {
+			val = spx5_rd(port->sparx5,
+				      HSCH_HSCH_L0_CFG(SPX5_HSCH_L0_GET_IDX(port->portno, i)));
+			vector |= val > 0 ? BIT(i) : 0;
+		}
+		port->fp.admin_status = vector;
+
+		SPX5_DEV_RD(val, port, ENABLE_CONFIG);
+		port->fp.enable_tx = DEV2G5_ENABLE_CONFIG_MM_TX_ENA_GET(val);
+
+		SPX5_DEV_RD(val, port, VERIF_CONFIG);
+		port->fp.verify_disable_tx = DEV2G5_VERIF_CONFIG_PRM_VERIFY_DIS_GET(val);
+		port->fp.verify_time = DEV2G5_VERIF_CONFIG_PRM_VERIFY_TIME_GET(val);
+
+		val = spx5_rd(port->sparx5, DSM_PREEMPT_CFG(port->portno));
+		port->fp.add_frag_size = DSM_PREEMPT_CFG_P_MIN_SIZE_GET(val);
+	}
+	return 0;
+}
+
+/*******************************************************************************
+ * QoS port notification
+ ******************************************************************************/
+int sparx5_qos_port_event(struct net_device *dev, unsigned long event)
+{
+	struct sparx5_port *port;
+
+	if (sparx5_netdevice_check(dev)) {
+		port = netdev_priv(dev);
+		switch (event) {
+		case NETDEV_DOWN:
+		case NETDEV_CHANGE:
+			sparx5_fp_update(port, &port->fp);
+			break;
+		default:
+			/* Nothing */
+			break;
+		}
+	}
+	return NOTIFY_DONE;
 }
 
 /*******************************************************************************
@@ -1336,9 +1676,20 @@ void sparx5_tas_speed(struct sparx5_port *port, int speed)
 		 HSCH_TAS_PROFILE_CONFIG(port->portno));
 }
 
+/*******************************************************************************
+ * QoS Initialization
+ ******************************************************************************/
 int sparx5_qos_init(struct sparx5 *sparx5)
 {
 	int ret;
+
+	ret = sparx5_leak_groups_init(sparx5);
+	if (ret < 0)
+		return ret;
+
+	ret = sparx5_fp_init(sparx5);
+	if (ret)
+		return ret;
 
 	ret = sparx5_tas_init(sparx5);
 	if (ret)

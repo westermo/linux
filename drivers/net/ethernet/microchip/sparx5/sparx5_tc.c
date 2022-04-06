@@ -156,7 +156,7 @@ static int sparx5_tc_setup_qdisc_ets(struct net_device *ndev,
 	return -EOPNOTSUPP;
 }
 
-static const char * const tc_setup_type_strings[] = {
+static const char * const sparx5_tc_setup_type_strings[] = {
 	[TC_SETUP_QDISC_MQPRIO] = "QDISC_MQPRIO",
 	[TC_SETUP_CLSU32]       = "CLSU32",
 	[TC_SETUP_CLSFLOWER]    = "CLSFLOWER",
@@ -180,11 +180,11 @@ static const char * const tc_setup_type_strings[] = {
 
 };
 
-const char *tc_dbg_tc_setup_type(enum tc_setup_type type)
+const char *sparx5_tc_dbg_tc_setup_type(enum tc_setup_type type)
 {
 	if (type > TC_SETUP_ACT)
 		return "INVALID TC_SETUP_TYPE!";
-	return tc_setup_type_strings[type];
+	return sparx5_tc_setup_type_strings[type];
 }
 
 static int sparx5_tc_setup_qdisc_taprio(struct sparx5_port *port,
@@ -218,6 +218,10 @@ static int sparx5_tc_setup_qdisc_taprio(struct sparx5_port *port,
 int sparx5_port_setup_tc(struct net_device *ndev, enum tc_setup_type type,
 			 void *type_data)
 {
+	struct sparx5_port *port = netdev_priv(ndev);
+
+	netdev_dbg(ndev, "type %s\n", sparx5_tc_dbg_tc_setup_type(type));
+
 	switch (type) {
 	case TC_SETUP_BLOCK:
 		return sparx5_tc_setup_block(ndev, type_data);

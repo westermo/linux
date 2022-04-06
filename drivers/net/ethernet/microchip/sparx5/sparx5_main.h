@@ -20,6 +20,7 @@
 #include <linux/debugfs.h>
 
 #include "sparx5_main_regs.h"
+#include "sparx5_qos.h"
 
 /* Target chip type */
 enum spx5_target_chiptype {
@@ -74,7 +75,6 @@ enum sparx5_vlan_port_type {
 #define NULL_VID               0
 #define SPX5_MACT_PULL_DELAY   (2 * HZ)
 #define SPX5_STATS_CHECK_DELAY (1 * HZ)
-#define SPX5_PRIOS             8     /* Number of priority queues */
 #define SPX5_BUFFER_CELL_SZ    184   /* Cell size  */
 #define SPX5_BUFFER_MEMORY     4194280 /* 22795 words * 184 bytes */
 
@@ -192,6 +192,10 @@ struct sparx5_port {
 	u16 ts_id;
 	struct sk_buff_head tx_skbs;
 	bool is_mrouter;
+	/* QOS port configuration */
+	struct sparx5_qos_port_conf qos_port_conf;
+	/* Frame preemption configuration */
+	struct sparx5_fp_port_conf fp;
 };
 
 enum sparx5_core_clockfreq {
@@ -427,6 +431,15 @@ int sparx5_pgid_free(struct sparx5 *spx5, u16 idx);
 /* sparx5_tc.c */
 int sparx5_setup_tc(struct net_device *dev, enum tc_setup_type type,
 		    void *type_data);
+
+/* netlink */
+int sparx5_netlink_qos_init(struct sparx5 *sparx5);
+void sparx5_netlink_qos_uninit(void);
+int sparx5_netlink_fp_init(void);
+void sparx5_netlink_fp_uninit(void);
+
+/* sparx5_qos.c */
+int sparx5_qos_init(struct sparx5 *sparx5);
 
 /* Clock period in picoseconds */
 static inline u32 sparx5_clk_period(enum sparx5_core_clockfreq cclock)

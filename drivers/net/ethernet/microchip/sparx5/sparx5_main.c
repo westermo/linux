@@ -692,7 +692,6 @@ static int sparx5_start(struct sparx5 *sparx5)
 		return err;
 	}
 
-	err = sparx5_qos_init(sparx5);
 	if (err)
 		return err;
 
@@ -702,9 +701,9 @@ static int sparx5_start(struct sparx5 *sparx5)
 		if (GCB_CHIP_ID_REV_ID_GET(sparx5->chip_id) > 0)
 			err = devm_request_threaded_irq(sparx5->dev,
 							sparx5->fdma_irq,
-							NULL,
 							sparx5_fdma_handler,
-							IRQF_ONESHOT,
+							NULL,
+							IRQF_SHARED,
 							"sparx5-fdma", sparx5);
 		if (!err)
 			err = sparx5_fdma_start(sparx5);
@@ -735,6 +734,9 @@ static int sparx5_start(struct sparx5 *sparx5)
 
 		sparx5->ptp = 1;
 	}
+
+	sparx5_netlink_fp_init();
+	sparx5_netlink_qos_init(sparx5);
 
 	return err;
 }
@@ -905,6 +907,13 @@ static int mchp_sparx5_probe(struct platform_device *pdev)
 		dev_err(sparx5->dev, "PTP failed\n");
 		goto cleanup_ports;
 	}
+
+	err = sparx5_qos_init(sparx5);
+	if (err) {
+		dev_err(sparx5->dev, "QOS init failed\n");
+		goto cleanup_ports;
+	}
+
 	goto cleanup_config;
 
 cleanup_ports:
