@@ -649,6 +649,12 @@ static int sparx5_start(struct sparx5 *sparx5)
 	if (err)
 		return err;
 
+	/* Debug */
+	sparx5_proc_register_dbg(sparx5);
+	dev_info(sparx5->dev, "sparx5 switch probed: %#04lx: revision: %#lx\n",
+		 GCB_CHIP_ID_PART_ID_GET(sparx5->chip_id),
+		 GCB_CHIP_ID_REV_ID_GET(sparx5->chip_id));
+
 	/* Init stats */
 	err = sparx_stats_init(sparx5);
 	if (err)
@@ -921,6 +927,9 @@ static int mchp_sparx5_remove(struct platform_device *pdev)
 	sparx5_vcap_destroy(sparx5);
 	/* Unregister netdevs */
 	sparx5_unregister_notifier_blocks(sparx5);
+
+	/* Debug */
+	sparx5_proc_unregister_dbg();
 
 	return 0;
 }

@@ -347,6 +347,25 @@ int sparx5_config_dsm_calendar(struct sparx5 *sparx5);
 void sparx5_get_stats64(struct net_device *ndev, struct rtnl_link_stats64 *stats);
 int sparx_stats_init(struct sparx5 *sparx5);
 
+struct sparx5_port_stats {
+	u64 rx_unicast;
+	u64 rx_multicast;
+	u64 rx_broadcast;
+	u64 tx_unicast;
+	u64 tx_multicast;
+	u64 tx_broadcast;
+};
+
+void sparx5_update_cpuport_stats(struct sparx5 *sparx5, int portno);
+bool sparx5_get_cpuport_stats(struct sparx5 *sparx5, int portno, int idx,
+			      const char **name, u64 *val);
+void sparx5_get_port_stats(struct sparx5 *sparx5, int portno,
+			   struct sparx5_port_stats *stats);
+
+/* sparx5_proc.c */
+void sparx5_proc_register_dbg(struct sparx5 *sparx5);
+void sparx5_proc_unregister_dbg(void);
+
 /* sparx5_netdev.c */
 void sparx5_set_port_ifh_timestamp(void *ifh_hdr, u64 timestamp);
 void sparx5_set_port_ifh_rew_op(void *ifh_hdr, u32 rew_op);
