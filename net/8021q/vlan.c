@@ -82,6 +82,9 @@ static void vlan_stacked_transfer_operstate(const struct net_device *rootdev,
 					    struct net_device *dev,
 					    struct vlan_dev_priv *vlan)
 {
+	if (vlan->flags & VLAN_FLAG_USER_CARRIER)
+		return;
+
 	if (!(vlan->flags & VLAN_FLAG_BRIDGE_BINDING))
 		netif_stacked_transfer_operstate(rootdev, dev);
 }

@@ -218,7 +218,7 @@ int vlan_dev_change_flags(const struct net_device *dev, u32 flags, u32 mask)
 
 	if (mask & ~(VLAN_FLAG_REORDER_HDR | VLAN_FLAG_GVRP |
 		     VLAN_FLAG_LOOSE_BINDING | VLAN_FLAG_MVRP |
-		     VLAN_FLAG_BRIDGE_BINDING))
+		     VLAN_FLAG_BRIDGE_BINDING | VLAN_FLAG_USER_CARRIER))
 		return -EINVAL;
 
 	vlan->flags = (old_flags & ~mask) | (flags & mask);
@@ -291,6 +291,11 @@ static int vlan_dev_open(struct net_device *dev)
 	if (vlan->flags & VLAN_FLAG_MVRP)
 		vlan_mvrp_request_join(dev);
 
+	if (vlan->flags & VLAN_FLAG_USER_CARRIER) {
+		netif_carrier_on(dev);
+		return 0;
+	}
+
 	if (netif_carrier_ok(real_dev) &&
 	    !(vlan->flags & VLAN_FLAG_BRIDGE_BINDING))
 		netif_carrier_on(dev);
@@ -321,6 +326,11 @@ static int vlan_dev_stop(struct net_device *dev)
 
 	if (!ether_addr_equal(dev->dev_addr, real_dev->dev_addr))
 		dev_uc_del(real_dev, dev->dev_addr);
+
+	if (vlan->flags & VLAN_FLAG_USER_CARRIER) {
+		netif_carrier_off(dev);
+		return 0;
+	}
 
 	if (!(vlan->flags & VLAN_FLAG_BRIDGE_BINDING))
 		netif_carrier_off(dev);
@@ -809,6 +819,21 @@ static int vlan_dev_fill_forward_path(struct net_device_path_ctx *ctx,
 	return 0;
 }
 
+static int vlan_dev_change_carrier(struct net_device *dev, bool set)
+{
+	struct vlan_dev_priv *vlan = vlan_dev_priv(dev);
+
+	if (vlan->flags & VLAN_FLAG_LOOSE_BINDING)
+		return -EOPNOTSUPP;
+
+	if (set)
+		netif_carrier_on(dev);
+	else
+		netif_carrier_off(dev);
+
+	return 0;
+}
+
 static const struct ethtool_ops vlan_ethtool_ops = {
 	.get_link_ksettings	= vlan_ethtool_get_link_ksettings,
 	.get_drvinfo	        = vlan_ethtool_get_drvinfo,
@@ -848,6 +873,7 @@ static const struct net_device_ops vlan_netdev_ops = {
 	.ndo_fix_features	= vlan_dev_fix_features,
 	.ndo_get_iflink		= vlan_dev_get_iflink,
 	.ndo_fill_forward_path	= vlan_dev_fill_forward_path,
+	.ndo_change_carrier     = vlan_dev_change_carrier,
 };
 
 static void vlan_dev_free(struct net_device *dev)
