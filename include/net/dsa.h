@@ -7,6 +7,7 @@
 #ifndef __LINUX_NET_DSA_H
 #define __LINUX_NET_DSA_H
 
+#include <linux/etherdevice.h>
 #include <linux/if.h>
 #include <linux/if_ether.h>
 #include <linux/list.h>
@@ -244,6 +245,17 @@ struct dsa_bridge {
 	unsigned int num;
 	bool tx_fwd_offload;
 	refcount_t refcount;
+
+	/* Tracks the current set of multicast router ports in this bridge, and
+	 * the tree-global subscriber count of each group. Used by hardware that
+	 * manages router ports alongside regular subscribers in their hardware
+	 * FDBs. Setting ds->fold_mrouters_into_mdb opts in to this feature.
+	 */
+	struct {
+		struct mutex     lock;
+		struct list_head routers;
+		struct list_head mdbs;
+	} folded_mdb;
 };
 
 struct dsa_port {
@@ -308,6 +320,7 @@ struct dsa_port {
 	struct net_device	*hsr_dev;
 
 	struct list_head list;
+	struct list_head mrouter;
 
 	/*
 	 * Original copy of the master netdev ethtool_ops
@@ -376,6 +389,45 @@ struct dsa_mac_addr {
 	struct list_head list;
 	struct dsa_db db;
 };
+
+static inline bool dsa_db_equal(const struct dsa_db *a, const struct dsa_db *b)
+{
+	if (a->type != b->type)
+		return false;
+
+	switch (a->type) {
+	case DSA_DB_PORT:
+		return a->dp == b->dp;
+	case DSA_DB_LAG:
+		return a->lag.dev == b->lag.dev;
+	case DSA_DB_BRIDGE:
+		return a->bridge.num == b->bridge.num;
+	default:
+		WARN_ON(1);
+		return false;
+	}
+}
+
+static inline struct dsa_mac_addr *
+dsa_mac_addr_find(struct list_head *addr_list, const unsigned char *addr,
+		  u16 vid, struct dsa_db db)
+{
+	struct dsa_mac_addr *a;
+
+	list_for_each_entry(a, addr_list, list)
+		if (ether_addr_equal(a->addr, addr) && a->vid == vid &&
+		    dsa_db_equal(&a->db, &db))
+			return a;
+
+	return NULL;
+}
+
+struct dsa_folded_mdb {
+	struct dsa_mac_addr addr;
+	DECLARE_DSA_PORTMAP(members);
+};
+
+bool dsa_folded_mdb_port_is_router(const struct dsa_port *dp);
 
 struct dsa_vlan {
 	u16 vid;
@@ -449,6 +501,12 @@ struct dsa_switch {
 	 * passed as zero.
 	 */
 	u32			fdb_isolation:1;
+
+	/* The underlying hardware has no independent facility for managing
+	 * router ports. Driver expects DSA to assist by adding/removing router
+	 * ports to/from all registered groups via the MDB API.
+	 */
+	u32			fold_mrouters_into_mdb:1;
 
 	/* Listener for switch fabric events */
 	struct notifier_block	nb;

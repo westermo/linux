@@ -490,6 +490,8 @@ static int dsa_port_setup(struct dsa_port *dp)
 	INIT_LIST_HEAD(&dp->mdbs);
 	INIT_LIST_HEAD(&dp->vlans);
 
+	INIT_LIST_HEAD(&dp->mrouter);
+
 	if (ds->ops->port_setup) {
 		err = ds->ops->port_setup(ds, dp->index);
 		if (err)
