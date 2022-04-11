@@ -261,6 +261,13 @@ config SPI_DAVINCI
 	help
 	  SPI master controller for DaVinci/DA8x/OMAP-L/AM1x SPI modules.
 
+config SPI_DRG
+	tristate "Dragonite SPI Master"
+	select SPI_BITBANG
+	help
+	  Support for Dragonite SPI master on Westermo's Dagger
+	  platform.
+
 config SPI_DESIGNWARE
 	tristate "DesignWare SPI controller core support"
 	imply SPI_MEM
