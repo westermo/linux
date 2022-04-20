@@ -19,6 +19,7 @@ struct br_mrp {
 	u32				ring_id;
 	u16				in_id;
 	u16				prio;
+	u16				vid;
 
 	enum br_mrp_ring_role_type	ring_role;
 	u8				ring_role_offloaded;

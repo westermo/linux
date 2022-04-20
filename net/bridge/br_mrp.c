@@ -131,7 +131,7 @@ static int br_mrp_next_seq(struct br_mrp *mrp)
 }
 
 static struct sk_buff *br_mrp_skb_alloc(struct net_bridge_port *p,
-					const u8 *src, const u8 *dst)
+					const u8 *src, const u8 *dst, u16 vid)
 {
 	struct ethhdr *eth_hdr;
 	struct sk_buff *skb;
@@ -150,6 +150,13 @@ static struct sk_buff *br_mrp_skb_alloc(struct net_bridge_port *p,
 	ether_addr_copy(eth_hdr->h_dest, dst);
 	ether_addr_copy(eth_hdr->h_source, src);
 	eth_hdr->h_proto = htons(ETH_P_MRP);
+
+	if (vid) {
+	    u16 vlan_tci = MRP_FRAME_PRIO << VLAN_PRIO_SHIFT | vid;
+	    if (skb_vlan_push(skb, htons(ETH_P_8021Q), vlan_tci))
+		pr_info("%s - ERROR push vlan\n", __func__);
+	}
+
 
 	version = skb_put(skb, sizeof(*version));
 	*version = cpu_to_be16(MRP_VERSION);
@@ -189,7 +196,7 @@ static struct sk_buff *br_mrp_alloc_test_skb(struct br_mrp *mrp,
 	if (!p)
 		return NULL;
 
-	skb = br_mrp_skb_alloc(p, p->dev->dev_addr, mrp_test_dmac);
+	skb = br_mrp_skb_alloc(p, p->dev->dev_addr, mrp_test_dmac, mrp->vid);
 	if (!skb)
 		return NULL;
 
@@ -246,7 +253,7 @@ static struct sk_buff *br_mrp_alloc_in_test_skb(struct br_mrp *mrp,
 	if (!p)
 		return NULL;
 
-	skb = br_mrp_skb_alloc(p, p->dev->dev_addr, mrp_in_test_dmac);
+	skb = br_mrp_skb_alloc(p, p->dev->dev_addr, mrp_in_test_dmac, mrp->vid);
 	if (!skb)
 		return NULL;
 
@@ -422,6 +429,37 @@ out:
 			   usecs_to_jiffies(mrp->in_test_interval));
 }
 
+static void br_mrp_add_vlan(struct net_bridge *br, struct br_mrp *mrp)
+{
+	u16 flags = BRIDGE_VLAN_INFO_BRENTRY;
+	bool changed;
+	int err;
+
+	if (!mrp->vid)
+		return;
+
+	/* TODO: If we are MRC we need to add vlan to SID 1 in some capacity
+	 * like we did before... */
+
+	br_vlan_add(br, mrp->vid, flags, &changed, NULL);
+	err = nbp_vlan_add(mrp->p_port, mrp->vid, 0, &changed, NULL);
+	err += nbp_vlan_add(mrp->s_port, mrp->vid, 0, &changed, NULL);
+	if (err)
+		pr_info("Can not create VLAN for MRP\n");
+}
+
+static void br_mrp_del_vlan(struct net_bridge *br, struct br_mrp *mrp)
+{
+    if (mrp->vid)
+    {
+	int err = br_vlan_delete(br, mrp->vid);
+	err += nbp_vlan_delete(mrp->p_port, mrp->vid);
+	err += nbp_vlan_delete(mrp->s_port, mrp->vid);
+	if (err)
+	    pr_info("Can not delete VLAN for MRP\n");
+    }
+}
+
 /* Deletes the MRP instance.
  * note: called under rtnl_lock
  */
@@ -446,6 +484,8 @@ static void br_mrp_del_impl(struct net_bridge *br, struct br_mrp *mrp)
 					     BR_MRP_IN_ROLE_DISABLED);
 
 	br_mrp_switchdev_del(br, mrp);
+
+	br_mrp_del_vlan(br, mrp);
 
 	/* Reset the ports */
 	p = rtnl_dereference(mrp->p_port);
@@ -522,6 +562,7 @@ int br_mrp_add(struct net_bridge *br, struct br_mrp_instance *instance)
 
 	mrp->ring_id = instance->ring_id;
 	mrp->prio = instance->prio;
+	mrp->vid = instance->vid;
 
 	p = br_mrp_get_port(br, instance->p_ifindex);
 	spin_lock_bh(&br->lock);
@@ -676,6 +717,12 @@ int br_mrp_set_ring_role(struct net_bridge *br,
 
 	if (!mrp)
 		return -EINVAL;
+
+	if (role->ring_role == BR_MRP_RING_ROLE_DISABLED)
+		br_mrp_del_vlan(br, mrp);
+	else
+		br_mrp_add_vlan(br, mrp);
+
 
 	mrp->ring_role = role->ring_role;
 
@@ -1067,6 +1114,18 @@ static bool br_mrp_mrc_behaviour(struct br_mrp *mrp)
 	return false;
 }
 
+static int br_mrp_correct_vid(struct net_bridge_port *p, struct sk_buff *skb,
+			      struct br_mrp *mrp)
+{
+	u16 vid;
+
+	br_vlan_get_tag(skb, &vid);
+	if (mrp->vid != vid)
+	    return 0;
+	return 1;
+}
+
+
 /* This will just forward the frame to the other mrp ring ports, depending on
  * the frame type, ring role and interconnect role
  * note: already called with rcu_read_lock
@@ -1086,6 +1145,9 @@ static int br_mrp_rcv(struct net_bridge_port *p,
 	br = p->br;
 	mrp =  br_mrp_find_port(br, p);
 	if (unlikely(!mrp))
+		return 0;
+
+	if (!br_mrp_correct_vid(p, skb, mrp))
 		return 0;
 
 	p_port = rcu_dereference(mrp->p_port);
@@ -1227,6 +1289,14 @@ static int br_mrp_rcv(struct net_bridge_port *p,
 	}
 
 forward:
+	/* If no VID is configured to be used for the MRP frames, we need to
+	 * ensure that we remove any possible vlan tag. Since the underlaying
+	 * hardware may set this when handling the frame. If the VID is not
+	 * fully stripped before we start the xmit the underlaying HW driver
+	 * may add a VLAN tag when it xmits the frame. */
+	if (!mrp->vid && skb_vlan_tag_present(skb))
+		skb_vlan_pop(skb);
+
 	if (p_dst)
 		br_forward(p_dst, skb, true, false);
 	if (s_dst)
