@@ -204,7 +204,7 @@ static struct sk_buff *br_mrp_alloc_test_skb(struct br_mrp *mrp,
 	hdr = skb_put(skb, sizeof(*hdr));
 
 	hdr->prio = cpu_to_be16(mrp->prio);
-	ether_addr_copy(hdr->sa, p->br->dev->dev_addr);
+	ether_addr_copy(hdr->sa, mrp->test_sa_mac);
 	hdr->port_role = cpu_to_be16(port_role);
 	hdr->state = cpu_to_be16(mrp->ring_state);
 	hdr->transitions = cpu_to_be16(mrp->ring_transitions);
@@ -261,7 +261,7 @@ static struct sk_buff *br_mrp_alloc_in_test_skb(struct br_mrp *mrp,
 	hdr = skb_put(skb, sizeof(*hdr));
 
 	hdr->id = cpu_to_be16(mrp->in_id);
-	ether_addr_copy(hdr->sa, p->br->dev->dev_addr);
+	ether_addr_copy(hdr->sa, mrp->in_test_sa_mac);
 	hdr->port_role = cpu_to_be16(port_role);
 	hdr->state = cpu_to_be16(mrp->in_state);
 	hdr->transitions = cpu_to_be16(mrp->in_transitions);
@@ -772,6 +772,13 @@ int br_mrp_start_test(struct net_bridge *br,
 	mrp->test_max_miss = test->max_miss;
 	mrp->test_monitor = test->monitor;
 	mrp->test_count_miss = 0;
+
+	/* If no sa mac is provided, we use the MAC of the bridge */
+	if (is_zero_ether_addr(test->sa_mac))
+		ether_addr_copy(mrp->test_sa_mac, br->dev->dev_addr);
+	else
+		ether_addr_copy(mrp->test_sa_mac, test->sa_mac);
+
 	queue_delayed_work(system_wq, &mrp->test_work,
 			   usecs_to_jiffies(test->interval));
 
@@ -912,6 +919,13 @@ int br_mrp_start_in_test(struct net_bridge *br,
 	mrp->in_test_end = jiffies + usecs_to_jiffies(in_test->period);
 	mrp->in_test_max_miss = in_test->max_miss;
 	mrp->in_test_count_miss = 0;
+
+	/* If no sa mac is provided, we use the MAC of the bridge */
+	if (is_zero_ether_addr(in_test->sa_mac))
+		ether_addr_copy(mrp->in_test_sa_mac, br->dev->dev_addr);
+	else
+		ether_addr_copy(mrp->in_test_sa_mac, in_test->sa_mac);
+
 	queue_delayed_work(system_wq, &mrp->in_test_work,
 			   usecs_to_jiffies(in_test->interval));
 
@@ -996,7 +1010,7 @@ static bool br_mrp_test_better_than_own(struct br_mrp *mrp,
 
 	if (prio < mrp->prio ||
 	    (prio == mrp->prio &&
-	    ether_addr_to_u64(hdr->sa) < ether_addr_to_u64(br->dev->dev_addr)))
+	    ether_addr_to_u64(hdr->sa) < ether_addr_to_u64(mrp->test_sa_mac)))
 		return true;
 
 	return false;

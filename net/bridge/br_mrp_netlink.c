@@ -205,6 +205,8 @@ br_mrp_start_test_policy[IFLA_BRIDGE_MRP_START_TEST_MAX + 1] = {
 	[IFLA_BRIDGE_MRP_START_TEST_MAX_MISS]	= { .type = NLA_U32 },
 	[IFLA_BRIDGE_MRP_START_TEST_PERIOD]	= { .type = NLA_U32 },
 	[IFLA_BRIDGE_MRP_START_TEST_MONITOR]	= { .type = NLA_U32 },
+	[IFLA_BRIDGE_MRP_START_TEST_SA_MAC]	= { .type = NLA_BINARY,
+						    .len  = ETH_ALEN },
 };
 
 static int br_mrp_start_test_parse(struct net_bridge *br, struct nlattr *attr,
@@ -239,6 +241,23 @@ static int br_mrp_start_test_parse(struct net_bridge *br, struct nlattr *attr,
 	if (tb[IFLA_BRIDGE_MRP_START_TEST_MONITOR])
 		test.monitor =
 			nla_get_u32(tb[IFLA_BRIDGE_MRP_START_TEST_MONITOR]);
+
+	if (tb[IFLA_BRIDGE_MRP_START_TEST_SA_MAC]) {
+		char *addr;
+
+		if (nla_len(tb[IFLA_BRIDGE_MRP_START_TEST_SA_MAC]) != ETH_ALEN) {
+			NL_SET_ERR_MSG_MOD(
+				extack,
+				"Invalid attribute: SA_MAC has invalid length");
+			return -EINVAL;
+		}
+
+		if (!is_valid_ether_addr(nla_data(tb[IFLA_BRIDGE_MRP_START_TEST_SA_MAC])))
+			return -EADDRNOTAVAIL;
+
+		addr = nla_data(tb[IFLA_BRIDGE_MRP_START_TEST_SA_MAC]);
+		ether_addr_copy(test.sa_mac, addr);
+	}
 
 	return br_mrp_start_test(br, &test);
 }
@@ -324,6 +343,8 @@ br_mrp_start_in_test_policy[IFLA_BRIDGE_MRP_START_IN_TEST_MAX + 1] = {
 	[IFLA_BRIDGE_MRP_START_IN_TEST_INTERVAL]	= { .type = NLA_U32 },
 	[IFLA_BRIDGE_MRP_START_IN_TEST_MAX_MISS]	= { .type = NLA_U32 },
 	[IFLA_BRIDGE_MRP_START_IN_TEST_PERIOD]	= { .type = NLA_U32 },
+	[IFLA_BRIDGE_MRP_START_IN_TEST_SA_MAC]	= { .type = NLA_BINARY,
+						    .len  = ETH_ALEN },
 };
 
 static int br_mrp_start_in_test_parse(struct net_bridge *br,
@@ -354,6 +375,23 @@ static int br_mrp_start_in_test_parse(struct net_bridge *br,
 	test.interval = nla_get_u32(tb[IFLA_BRIDGE_MRP_START_IN_TEST_INTERVAL]);
 	test.max_miss = nla_get_u32(tb[IFLA_BRIDGE_MRP_START_IN_TEST_MAX_MISS]);
 	test.period = nla_get_u32(tb[IFLA_BRIDGE_MRP_START_IN_TEST_PERIOD]);
+
+	if (tb[IFLA_BRIDGE_MRP_START_IN_TEST_SA_MAC]) {
+		char *addr;
+
+		if (nla_len(tb[IFLA_BRIDGE_MRP_START_IN_TEST_SA_MAC]) != ETH_ALEN) {
+			NL_SET_ERR_MSG_MOD(
+				extack,
+				"Invalid attribute: SA_MAC has invalid length");
+			return -EINVAL;
+		}
+
+		if (!is_valid_ether_addr(nla_data(tb[IFLA_BRIDGE_MRP_START_IN_TEST_SA_MAC])))
+			return -EADDRNOTAVAIL;
+
+		addr = nla_data(tb[IFLA_BRIDGE_MRP_START_IN_TEST_SA_MAC]);
+		ether_addr_copy(test.sa_mac, addr);
+	}
 
 	return br_mrp_start_in_test(br, &test);
 }

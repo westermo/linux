@@ -37,12 +37,14 @@ struct br_mrp {
 	u32				test_count_miss;
 	u32				test_max_miss;
 	bool				test_monitor;
+	u8				test_sa_mac[ETH_ALEN];
 
 	struct delayed_work		in_test_work;
 	u32				in_test_interval;
 	unsigned long			in_test_end;
 	u32				in_test_count_miss;
 	u32				in_test_max_miss;
+	u8				in_test_sa_mac[ETH_ALEN];
 
 	u32				seq_id;
 
