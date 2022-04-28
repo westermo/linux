@@ -2309,6 +2309,9 @@ static int sfp_module_info(struct sfp *sfp, struct ethtool_modinfo *modinfo)
 {
 	/* locking... and check module is present */
 
+	if (!(sfp->state & SFP_F_PRESENT))
+		return 1;
+
 	if (sfp->id.ext.sff8472_compliance &&
 	    !(sfp->id.ext.diagmon & SFP_DIAGMON_ADDRMODE)) {
 		modinfo->type = ETH_MODULE_SFF_8472;
