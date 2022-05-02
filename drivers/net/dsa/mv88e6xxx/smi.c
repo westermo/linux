@@ -60,10 +60,7 @@ static int mv88e6xxx_smi_direct_wait(struct mv88e6xxx_chip *chip,
 	int err;
 	int i;
 
-	/* Even if the initial poll takes longer than 50ms, always do
-	 * at least one more attempt.
-	 */
-	for (i = 0; time_before(jiffies, timeout) || (i < 2); i++) {
+	for (i = 0; time_before(jiffies, timeout); i++) {
 		err = mv88e6xxx_smi_direct_read(chip, dev, reg, &data);
 		if (err)
 			return err;
@@ -73,6 +70,16 @@ static int mv88e6xxx_smi_direct_wait(struct mv88e6xxx_chip *chip,
 
 		cpu_relax();
 	}
+
+	/* Even if the initial poll takes longer than 50ms, always do
+	 * at least one more attempt.
+	 */
+	err = mv88e6xxx_smi_direct_read(chip, dev, reg, &data);
+	if (err)
+		return err;
+
+	if (!!(data & BIT(bit)) == !!val)
+		return 0;
 
 	return -ETIMEDOUT;
 }

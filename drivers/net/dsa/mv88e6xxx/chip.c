@@ -91,11 +91,7 @@ int mv88e6xxx_wait_mask(struct mv88e6xxx_chip *chip, int addr, int reg,
 	int err;
 	int i;
 
-	/* There's no bus specific operation to wait for a mask. Even
-	 * if the initial poll takes longer than 50ms, always do at
-	 * least one more attempt.
-	 */
-	for (i = 0; time_before(jiffies, timeout) || (i < 2); i++) {
+	for (i = 0; time_before(jiffies, timeout); i++) {
 		err = mv88e6xxx_read(chip, addr, reg, &data);
 		if (err)
 			return err;
@@ -106,7 +102,16 @@ int mv88e6xxx_wait_mask(struct mv88e6xxx_chip *chip, int addr, int reg,
 		cpu_relax();
 	}
 
-	dev_err(chip->dev, "Timeout while waiting for switch\n");
+	/* Even if the initial poll takes longer than 50ms, always do
+	 * at least one more attempt.
+	 */
+	err = mv88e6xxx_read(chip, addr, reg, &data);
+	if (err)
+		return err;
+
+	if ((data & mask) == val)
+		return 0;
+
 	return -ETIMEDOUT;
 }
 
