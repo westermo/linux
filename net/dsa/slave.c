@@ -1228,6 +1228,7 @@ dsa_slave_add_cls_matchall_mirred(struct net_device *dev,
 
 	mirror->to_local_port = to_dp->index;
 	mirror->ingress = ingress;
+	mirror->trg_ds = to_dp->ds;
 
 	err = ds->ops->port_mirror_add(ds, dp->index, mirror, ingress, extack);
 	if (err) {
