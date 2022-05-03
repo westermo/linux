@@ -6887,26 +6887,37 @@ static int mv88e6xxx_port_mdb_del(struct dsa_switch *ds, int port,
 	return err;
 }
 
-static int mv88e6xxx_port_mirror_add(struct dsa_switch *ds, int port,
-				     struct dsa_mall_mirror_tc_entry *mirror,
-				     bool ingress,
-				     struct netlink_ext_ack *extack)
+static bool mv88e6xxx_mirror_is_xchip(struct mv88e6xxx_chip *chip,
+				      struct mv88e6xxx_chip *trg_chip,
+				      struct dsa_switch_tree *dst)
+{
+	if (list_empty(&dst->rtable))
+		return false;
+
+	if (chip == trg_chip)
+		return false;
+
+	return true;
+}
+
+static int mv88e6xxx_mirror_setup(struct mv88e6xxx_chip *chip, int port,
+				  struct dsa_mall_mirror_tc_entry *mirror,
+				  bool ingress)
 {
 	enum mv88e6xxx_egress_direction direction = ingress ?
 						MV88E6XXX_EGRESS_DIR_INGRESS :
 						MV88E6XXX_EGRESS_DIR_EGRESS;
-	struct mv88e6xxx_chip *chip = ds->priv;
 	bool other_mirrors = false;
 	int i;
-	int err;
+	int err = 0;
 
-	mutex_lock(&chip->reg_lock);
+	mv88e6xxx_reg_lock(chip);
 	if ((ingress ? chip->ingress_dest_port : chip->egress_dest_port) !=
 	    mirror->to_local_port) {
 		for (i = 0; i < mv88e6xxx_num_ports(chip); i++)
 			other_mirrors |= ingress ?
-					 chip->ports[i].mirror_ingress :
-					 chip->ports[i].mirror_egress;
+				chip->ports[i].mirror_ingress :
+				chip->ports[i].mirror_egress;
 
 		/* Can't change egress port when other mirror is active */
 		if (other_mirrors) {
@@ -6921,10 +6932,197 @@ static int mv88e6xxx_port_mirror_add(struct dsa_switch *ds, int port,
 	}
 
 	err = mv88e6xxx_port_set_mirror(chip, port, direction, true);
-out:
-	mutex_unlock(&chip->reg_lock);
+
+ out:
+	mv88e6xxx_reg_unlock(chip);
 
 	return err;
+}
+
+static int mv88e6xxx_xchip_mirror_setup(struct mv88e6xxx_chip *chip,
+					struct dsa_switch_tree *dst,
+					int port,
+					struct dsa_mall_mirror_tc_entry *mirror,
+					bool ingress)
+{
+	enum mv88e6xxx_egress_direction direction = ingress ?
+						MV88E6XXX_EGRESS_DIR_INGRESS :
+						MV88E6XXX_EGRESS_DIR_EGRESS;
+	struct mv88e6xxx_chip *trg_chip = mirror->trg_ds->priv;
+	struct dsa_link *dl;
+	bool other_mirrors = false;
+	bool dst_upstream = false;
+	bool new_dst = false;
+	int i, dest_port;
+	int err = 0;
+
+	mv88e6xxx_reg_lock(trg_chip);
+	dest_port = ingress ? trg_chip->ingress_dest_port : trg_chip->egress_dest_port;
+	mv88e6xxx_reg_unlock(trg_chip);
+
+	if (dest_port != mirror->to_local_port) {
+		list_for_each_entry(dl, &dst->rtable, list) {
+			struct mv88e6xxx_chip *curr = dl->dp->ds->priv;
+
+			mv88e6xxx_reg_lock(curr);
+			for (i = 0; i < mv88e6xxx_num_ports(curr); i++)
+				other_mirrors |= ingress ?
+					chip->ports[i].mirror_ingress :
+					chip->ports[i].mirror_egress;
+			mv88e6xxx_reg_unlock(curr);
+
+			/* Can't change egress port when other mirror is active */
+			if (other_mirrors)
+				return -EBUSY;
+		}
+
+		new_dst = true;
+	}
+
+	if (new_dst) {
+		mv88e6xxx_reg_lock(trg_chip);
+		err = mv88e6xxx_set_egress_port(trg_chip, direction,
+						mirror->to_local_port);
+		mv88e6xxx_reg_unlock(trg_chip);
+
+		if (err)
+			return err;
+	}
+
+	mv88e6xxx_reg_lock(chip);
+	err = mv88e6xxx_port_set_mirror(chip, port, direction, true);
+	err += mv88e6xxx_set_egress_port(chip, direction,
+					 dsa_routing_port(chip->ds, mirror->trg_ds->index));
+	mv88e6xxx_reg_unlock(chip);
+
+	if (err)
+		return err;
+
+	/* setup routing path for X-chip mirroring */
+	dst_upstream = dsa_switch_is_upstream_of(mirror->trg_ds, chip->ds);
+
+	list_for_each_entry(dl, &dst->rtable, list) {
+		struct dsa_switch *curr_ds = dl->dp->ds;
+		struct mv88e6xxx_chip *curr_chip = curr_ds->priv;
+		bool routing = false;
+
+		/* chip & trg_chip has already been set up */
+		if ((curr_chip == chip) || (curr_chip == trg_chip))
+			continue;
+
+		if (dst_upstream) {
+			if ((dsa_switch_is_upstream_of(mirror->trg_ds, curr_ds)) &&
+			    (dsa_switch_is_upstream_of(curr_ds, chip->ds)))
+				routing = true;
+		} else {
+			if ((dsa_switch_is_upstream_of(curr_ds, mirror->trg_ds)) &&
+			    (dsa_switch_is_upstream_of(chip->ds, curr_ds)))
+				routing = true;
+		}
+
+		if (routing) {
+			mv88e6xxx_reg_lock(curr_chip);
+			err = mv88e6xxx_set_egress_port(curr_chip, direction,
+							dsa_routing_port(curr_ds,
+									 mirror->trg_ds->index));
+			mv88e6xxx_reg_unlock(curr_chip);
+		}
+
+		if (err)
+			return err;
+	}
+
+	return 0;
+}
+
+static int mv88e6xxx_port_mirror_add(struct dsa_switch *ds, int port,
+				     struct dsa_mall_mirror_tc_entry *mirror,
+				     bool ingress,
+				     struct netlink_ext_ack *extack)
+{
+	struct mv88e6xxx_chip *chip = ds->priv;
+	struct mv88e6xxx_chip *trg_chip = mirror->trg_ds->priv;
+	struct dsa_switch_tree *dst = ds->dst;
+	int err;
+
+	if (mv88e6xxx_mirror_is_xchip(chip, trg_chip, dst))
+		err = mv88e6xxx_xchip_mirror_setup(chip, dst, port, mirror, ingress);
+	else
+		err = mv88e6xxx_mirror_setup(chip, port, mirror, ingress);
+
+	return err;
+}
+
+static void mv88e6xxx_mirror_teardown(struct mv88e6xxx_chip *chip, int port,
+				      struct dsa_mall_mirror_tc_entry *mirror,
+				      enum mv88e6xxx_egress_direction direction)
+{
+	bool other_mirrors = false;
+	int i;
+
+	mv88e6xxx_reg_lock(chip);
+	if (mv88e6xxx_port_set_mirror(chip, port, direction, false))
+		dev_err(chip->ds->dev, "p%d: failed to disable mirroring\n", port);
+
+	for (i = 0; i < mv88e6xxx_num_ports(chip); i++)
+		other_mirrors |= mirror->ingress ?
+			chip->ports[i].mirror_ingress :
+			chip->ports[i].mirror_egress;
+
+	if (!other_mirrors) {
+		if (mv88e6xxx_set_egress_port(chip, direction,
+					      dsa_upstream_port(chip->ds, port)))
+			dev_err(chip->ds->dev, "failed to set egress port\n");
+	}
+
+	mv88e6xxx_reg_unlock(chip);
+}
+
+static void mv88e6xxx_xchip_mirror_teardown(struct mv88e6xxx_chip *chip,
+					    struct dsa_switch_tree *dst,
+					    int port,
+					    struct dsa_mall_mirror_tc_entry *mirror,
+					    enum mv88e6xxx_egress_direction direction)
+{
+	struct dsa_link *dl;
+	bool other_mirrors = false;
+	bool clean = false;
+	int i;
+
+	mv88e6xxx_reg_lock(chip);
+	if (mv88e6xxx_port_set_mirror(chip, port, direction, false))
+		dev_err(chip->ds->dev, "p%d: failed to disable mirroring\n", port);
+	mv88e6xxx_reg_unlock(chip);
+
+	list_for_each_entry(dl, &dst->rtable, list) {
+		struct mv88e6xxx_chip *curr_chip = dl->dp->ds->priv;
+
+		mv88e6xxx_reg_lock(curr_chip);
+		for (i = 0; i < mv88e6xxx_num_ports(curr_chip); i++)
+			other_mirrors |= mirror->ingress ?
+				      curr_chip->ports[i].mirror_ingress :
+				      curr_chip->ports[i].mirror_egress;
+		mv88e6xxx_reg_unlock(curr_chip);
+
+		if (other_mirrors)
+			return;
+		else
+			clean = true;
+	}
+
+	if (clean) {
+		list_for_each_entry(dl, &dst->rtable, list) {
+			struct dsa_switch *curr_ds = dl->dp->ds;
+			struct mv88e6xxx_chip *curr_chip = curr_ds->priv;
+
+			mv88e6xxx_reg_lock(curr_chip);
+			if (mv88e6xxx_set_egress_port(curr_chip, direction,
+						      dsa_upstream_port(curr_ds,
+									dl->dp->index)))
+				dev_err(curr_chip->ds->dev, "failed to set egress port\n");
+			mv88e6xxx_reg_unlock(curr_chip);
+		}
+	}
 }
 
 static void mv88e6xxx_port_mirror_del(struct dsa_switch *ds, int port,
@@ -6934,26 +7132,13 @@ static void mv88e6xxx_port_mirror_del(struct dsa_switch *ds, int port,
 						MV88E6XXX_EGRESS_DIR_INGRESS :
 						MV88E6XXX_EGRESS_DIR_EGRESS;
 	struct mv88e6xxx_chip *chip = ds->priv;
-	bool other_mirrors = false;
-	int i;
+	struct mv88e6xxx_chip *trg_chip = mirror->trg_ds->priv;
+	struct dsa_switch_tree *dst = ds->dst;
 
-	mutex_lock(&chip->reg_lock);
-	if (mv88e6xxx_port_set_mirror(chip, port, direction, false))
-		dev_err(ds->dev, "p%d: failed to disable mirroring\n", port);
-
-	for (i = 0; i < mv88e6xxx_num_ports(chip); i++)
-		other_mirrors |= mirror->ingress ?
-				 chip->ports[i].mirror_ingress :
-				 chip->ports[i].mirror_egress;
-
-	/* Reset egress port when no other mirror is active */
-	if (!other_mirrors) {
-		if (mv88e6xxx_set_egress_port(chip, direction,
-					      dsa_upstream_port(ds, port)))
-			dev_err(ds->dev, "failed to set egress port\n");
-	}
-
-	mutex_unlock(&chip->reg_lock);
+	if (mv88e6xxx_mirror_is_xchip(chip, trg_chip, dst))
+		mv88e6xxx_xchip_mirror_teardown(chip, dst, port, mirror, direction);
+	else
+		mv88e6xxx_mirror_teardown(chip, port, mirror, direction);
 }
 
 static int mv88e6xxx_port_pre_bridge_flags(struct dsa_switch *ds, int port,
