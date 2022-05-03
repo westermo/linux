@@ -216,6 +216,7 @@ enum dsa_port_mall_action_type {
 struct dsa_mall_mirror_tc_entry {
 	u8 to_local_port;
 	bool ingress;
+	struct dsa_switch *trg_ds;
 };
 
 /* TC port policer entry */
