@@ -9,6 +9,14 @@
 #include "sparx5_main.h"
 #include "sparx5_qos.h"
 
+#define P(X, Y) \
+	seq_printf(m, "%-20s: %12d\n", X, Y)
+#define P_STR(X, Y) \
+	seq_printf(m, "%-20s: %12s\n", X, Y)
+#define P_TIME(X, S, NS) \
+	seq_printf(m, "%-20s: %12llu.%09llu sec\n",\
+		   X, (unsigned long long)S, (unsigned long long)NS)
+
 /* Max rates for leak groups */
 static const u32 spx5_hsch_max_group_rate[SPX5_HSCH_LEAK_GRP_CNT] = {
 	1048568, /*  1.049 Gbps */
@@ -511,7 +519,6 @@ int sparx5_tc_ets_del(struct sparx5_port *port)
 
 	return sparx5_dwrr_conf_set(port, &dwrr);
 }
-
 
 /* Calculate new base_time based on cycle_time.
  *
@@ -1186,6 +1193,76 @@ out:
 	return err;
 }
 
+static int sparx5_tas_show(struct seq_file *m, void *unused)
+{
+	u32 sec, nsec, val, base, time, ctrl, gcl, length;
+	int pidx, entry, list, state;
+	struct sparx5_port *port;
+	struct sparx5 *sparx5;
+	struct timespec64 ts;
+
+	sparx5 = m->private;
+	port = sparx5->ports[0];
+
+	rtnl_lock();
+	P("num_ports", num_ports);
+	P("num_tas_lists", num_tas_lists);
+	sparx5_ptp_gettime64(&sparx5->phc[SPARX5_PHC_PORT].info,
+			     &ts);
+	P_TIME("current time", ts.tv_sec, ts.tv_nsec);
+
+	for (pidx = 0; pidx < num_ports; pidx++) {
+		port = sparx5->ports[pidx];
+		if (!port)
+			continue;
+		for (entry = 0; entry < TAS_ENTRIES_PER_PORT; entry++) {
+			list = (port->portno * TAS_ENTRIES_PER_PORT) + entry;
+			spx5_rmw(HSCH_TAS_CFG_CTRL_LIST_NUM_SET(list),
+				 HSCH_TAS_CFG_CTRL_LIST_NUM,
+				 sparx5,
+				 HSCH_TAS_CFG_CTRL);
+			val = spx5_rd(sparx5, HSCH_TAS_LIST_STATE);
+			state = HSCH_TAS_LIST_STATE_LIST_STATE_GET(val);
+			if (state == TAS_STATE_ADMIN)
+				continue;
+
+			seq_printf(m, "\n%s:\n", port->ndev->name);
+			P(" portno", port->portno);
+			P(" entry", entry);
+			P(" list", list);
+			P_STR(" state", sparx5_tas_state_to_str(state));
+			sec = spx5_rd(sparx5, HSCH_TAS_BASE_TIME_SEC_LSB);
+			nsec = spx5_rd(sparx5, HSCH_TAS_BASE_TIME_NSEC);
+			P_TIME(" base time", sec, nsec);
+			ctrl = spx5_rd(sparx5, HSCH_TAS_CYCLE_TIME_CFG);
+			P_TIME(" cycle_time", 0, ctrl);
+			val = spx5_rd(sparx5, HSCH_TAS_LIST_CFG);
+			base = HSCH_TAS_LIST_CFG_LIST_BASE_ADDR_GET(val);
+			length = HSCH_TAS_LIST_CFG_LIST_LENGTH_GET(val);
+			P(" gcl base", base);
+			P(" gcl length", length);
+			for (gcl = 0; gcl < length; gcl++) {
+				spx5_rmw(HSCH_TAS_CFG_CTRL_GCL_ENTRY_NUM_SET(gcl),
+					 HSCH_TAS_CFG_CTRL_GCL_ENTRY_NUM,
+					 sparx5,
+					 HSCH_TAS_CFG_CTRL);
+
+				ctrl = spx5_rd(sparx5, HSCH_TAS_GCL_CTRL_CFG);
+				time = spx5_rd(sparx5, HSCH_TAS_GCL_TIME_CFG);
+
+				seq_printf(m, "  gcl %d: command %lu gatemask 0x%02lx interval %u ns\n",
+					   base + gcl,
+					   0l,
+					   HSCH_TAS_GCL_CTRL_CFG_GATE_STATE_GET(ctrl),
+					   time);
+			}
+		}
+	}
+	rtnl_unlock();
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(sparx5_tas);
+
 static int sparx5_tas_init(struct sparx5 *sparx5)
 {
 	int i;
@@ -1213,6 +1290,8 @@ static int sparx5_tas_init(struct sparx5 *sparx5)
 			 sparx5,
 			 HSCH_TAS_PROFILE_CONFIG(i));
 
+	debugfs_create_file("tas_show", 0444, sparx5->debugfs_root, sparx5,
+			    &sparx5_tas_fops);
 	return 0;
 }
 
