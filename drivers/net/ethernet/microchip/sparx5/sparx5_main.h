@@ -424,6 +424,10 @@ int sparx5_pgid_alloc_glag(struct sparx5 *spx5, u16 *idx);
 int sparx5_pgid_alloc_mcast(struct sparx5 *spx5, u16 *idx);
 int sparx5_pgid_free(struct sparx5 *spx5, u16 idx);
 
+/* sparx5_tc.c */
+int sparx5_setup_tc(struct net_device *dev, enum tc_setup_type type,
+		    void *type_data);
+
 /* Clock period in picoseconds */
 static inline u32 sparx5_clk_period(enum sparx5_core_clockfreq cclock)
 {

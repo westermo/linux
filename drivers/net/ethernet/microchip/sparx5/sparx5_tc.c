@@ -156,6 +156,65 @@ static int sparx5_tc_setup_qdisc_ets(struct net_device *ndev,
 	return -EOPNOTSUPP;
 }
 
+static const char * const tc_setup_type_strings[] = {
+	[TC_SETUP_QDISC_MQPRIO] = "QDISC_MQPRIO",
+	[TC_SETUP_CLSU32]       = "CLSU32",
+	[TC_SETUP_CLSFLOWER]    = "CLSFLOWER",
+	[TC_SETUP_CLSMATCHALL]  = "CLSMATCHALL",
+	[TC_SETUP_CLSBPF]       = "CLSBPF",
+	[TC_SETUP_BLOCK]        = "BLOCK",
+	[TC_SETUP_QDISC_CBS]    = "QDISC_CBS",
+	[TC_SETUP_QDISC_RED]    = "QDISC_RED",
+	[TC_SETUP_QDISC_PRIO]   = "QDISC_PRIO",
+	[TC_SETUP_QDISC_MQ]     = "QDISC_MQ",
+	[TC_SETUP_QDISC_ETF]    = "QDISC_ETF",
+	[TC_SETUP_ROOT_QDISC]   = "ROOT_QDISC",
+	[TC_SETUP_QDISC_GRED]   = "QDISC_GRED",
+	[TC_SETUP_QDISC_TAPRIO] = "QDISC_TAPRIO",
+	[TC_SETUP_FT]           = "FT",
+	[TC_SETUP_QDISC_ETS]    = "QDISC_ETS",
+	[TC_SETUP_QDISC_TBF]    = "QDISC_TBF",
+	[TC_SETUP_QDISC_FIFO]   = "QDISC_FIFO",
+	[TC_SETUP_QDISC_HTB]    = "QDISC_HTB",
+	[TC_SETUP_ACT]          = "ACT"
+
+};
+
+const char *tc_dbg_tc_setup_type(enum tc_setup_type type)
+{
+	if (type > TC_SETUP_ACT)
+		return "INVALID TC_SETUP_TYPE!";
+	return tc_setup_type_strings[type];
+}
+
+static int sparx5_tc_setup_qdisc_taprio(struct sparx5_port *port,
+					struct tc_taprio_qopt_offload *qopt)
+{
+	int i, err;
+
+	netdev_dbg(port->ndev,
+		   "port %u enable %d\n",
+		   port->portno, qopt->enable);
+	if (qopt->enable) {
+		netdev_dbg(port->ndev,
+			   "base_time %lld cycle_time %llu cycle_time_extension %llu\n",
+			   qopt->base_time, qopt->cycle_time,
+			   qopt->cycle_time_extension);
+		for (i = 0; i < qopt->num_entries; i++) {
+			netdev_dbg(port->ndev,
+				   "[%d]: command %u gate_mask %x interval %u\n",
+				   i, qopt->entries[i].command,
+				   qopt->entries[i].gate_mask,
+				   qopt->entries[i].interval);
+		}
+		err = sparx5_tas_enable(port, qopt);
+	} else {
+		err = sparx5_tas_disable(port);
+	}
+
+	return err;
+}
+
 int sparx5_port_setup_tc(struct net_device *ndev, enum tc_setup_type type,
 			 void *type_data)
 {
@@ -168,6 +227,8 @@ int sparx5_port_setup_tc(struct net_device *ndev, enum tc_setup_type type,
 		return sparx5_tc_setup_qdisc_tbf(ndev, type_data);
 	case TC_SETUP_QDISC_ETS:
 		return sparx5_tc_setup_qdisc_ets(ndev, type_data);
+	case TC_SETUP_QDISC_TAPRIO:
+		return sparx5_tc_setup_qdisc_taprio(port, type_data);
 	default:
 		return -EOPNOTSUPP;
 	}
