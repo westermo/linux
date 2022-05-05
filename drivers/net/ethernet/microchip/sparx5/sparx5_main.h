@@ -405,6 +405,8 @@ int sparx5_ptp_txtstamp_request(struct sparx5_port *port,
 void sparx5_ptp_txtstamp_release(struct sparx5_port *port,
 				 struct sk_buff *skb);
 irqreturn_t sparx5_ptp_irq_handler(int irq, void *args);
+int sparx5_ptp_gettime64(struct ptp_clock_info *ptp,
+			 struct timespec64 *ts);
 
 /* sparx5_vcap_impl.c */
 int sparx5_vcap_init(struct sparx5 *sparx5);

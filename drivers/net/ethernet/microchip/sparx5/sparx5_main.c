@@ -692,6 +692,10 @@ static int sparx5_start(struct sparx5 *sparx5)
 		return err;
 	}
 
+	err = sparx5_qos_init(sparx5);
+	if (err)
+		return err;
+
 	/* Start Frame DMA with fallback to register based INJ/XTR */
 	err = -ENXIO;
 	if (sparx5->fdma_irq >= 0) {

@@ -511,3 +511,759 @@ int sparx5_tc_ets_del(struct sparx5_port *port)
 
 	return sparx5_dwrr_conf_set(port, &dwrr);
 }
+
+
+/* Calculate new base_time based on cycle_time.
+ *
+ * The hardware requires a base_time that is always in the future.
+ * We define threshold_time as current_time + (2 * cycle_time).
+ * If base_time is below threshold_time this function recalculates it to be in
+ * the interval:
+ * threshold_time <= base_time < (threshold_time + cycle_time)
+ *
+ * A very simple algorithm could be like this:
+ * new_base_time = org_base_time + N * cycle_time
+ * using the lowest N so (new_base_time >= threshold_time
+ *
+ * The algorithm has been optimized as the above code is extremely slow.
+ *
+ * sparx5 [IN] Target instance reference.
+ * cycle_time [IN] In nanoseconds.
+ * org_base_time [IN] Original base time.
+ * new_base_time [OUT] New base time.
+ */
+static void sparx5_new_base_time(struct sparx5 *sparx5,
+				 const u32 cycle_time,
+				 const ktime_t org_base_time,
+				 ktime_t *new_base_time)
+{
+	ktime_t current_time, threshold_time, new_time;
+	struct timespec64 ts;
+	u64 nr_of_cycles_p2;
+	u64 nr_of_cycles;
+	u64 diff_time;
+
+	new_time = org_base_time;
+
+	sparx5_ptp_gettime64(&sparx5->phc[SPARX5_PHC_PORT].info,
+			     &ts);
+	current_time = timespec64_to_ktime(ts);
+	threshold_time = current_time + (2 * cycle_time);
+	diff_time = threshold_time - new_time;
+	nr_of_cycles = div_u64(diff_time, cycle_time);
+	nr_of_cycles_p2 = 1; /* Use 2^0 as start value */
+
+	if (new_time >= threshold_time) {
+		*new_base_time = new_time;
+		dev_dbg(sparx5->dev,
+			"\nUNCHANGED!\n"
+			"cycle_time     %20u\n"
+			"org_base_time  %20lld\n"
+			"cur_time       %20lld\n"
+			"threshold_time %20lld\n"
+			"new_base_time  %20lld\n",
+			cycle_time, org_base_time, current_time,
+			threshold_time, new_time);
+		return;
+	}
+
+	/* Calculate the smallest power of 2 (nr_of_cycles_p2)
+	 * that is larger than nr_of_cycles.
+	 */
+	while (nr_of_cycles_p2 < nr_of_cycles)
+		nr_of_cycles_p2 <<= 1; /* Next (higher) power of 2 */
+
+	/* Add as big chunks (power of 2 * cycle_time)
+	 * as possible for each power of 2
+	 */
+	while (nr_of_cycles_p2) {
+		if (new_time < threshold_time) {
+			new_time += cycle_time * nr_of_cycles_p2;
+			while (new_time < threshold_time)
+				new_time += cycle_time * nr_of_cycles_p2;
+			new_time -= cycle_time * nr_of_cycles_p2;
+		}
+		nr_of_cycles_p2 >>= 1; /* Next (lower) power of 2 */
+	}
+	new_time += cycle_time;
+	*new_base_time = new_time;
+
+	dev_dbg(sparx5->dev,
+		"\nCHANGED!\n"
+		"cycle_time     %20u\n"
+		"org_base_time  %20lld\n"
+		"cur_time       %20lld\n"
+		"threshold_time %20lld\n"
+		"new_base_time  %20lld\n"
+		"nr_of_cycles   %20lld\n",
+		cycle_time, org_base_time, current_time, threshold_time,
+		new_time, nr_of_cycles);
+}
+
+/*******************************************************************************
+ * TAS (Time Aware Shaper - 802.1Qbv)
+ ******************************************************************************/
+/* Maximum time in milliseconds to wait for TAS state transitions */
+#define TAS_TIMEOUT_MS 1000
+
+/* Minimum supported cycle time in nanoseconds */
+#define TAS_MIN_CYCLE_TIME_NS (1 * NSEC_PER_USEC) /* 1 usec */
+
+/* Maximum supported cycle time in nanoseconds */
+#define TAS_MAX_CYCLE_TIME_NS ((1 * NSEC_PER_SEC) - 1) /* 999.999.999 nsec */
+
+/* TAS link speeds for calculation of guard band: */
+enum sparx5_tas_link_speed {
+	TAS_SPEED_NO_GB,
+	TAS_SPEED_10,
+	TAS_SPEED_100,
+	TAS_SPEED_1000,
+	TAS_SPEED_2500,
+	TAS_SPEED_5000,
+	TAS_SPEED_10000,
+	TAS_SPEED_25000,
+};
+
+/* TAS list states: */
+enum sparx5_tas_state {
+	TAS_STATE_ADMIN,
+	TAS_STATE_ADVANCING,
+	TAS_STATE_PENDING,
+	TAS_STATE_OPERATING,
+	TAS_STATE_TERMINATING,
+	NUM_TAS_STATE,
+};
+
+#define TAS_ENTRIES_PER_PORT	2
+
+#define TAS_NUM_GCL		10000 /* Total number of TAS GCL entries */
+
+static u8 num_ports;
+static u8 num_tas_lists;
+
+/* We use 2 TAS list entries per port:
+ * num_tas_lists = num_ports * TAS_ENTRIES_PER_PORT;
+ *
+ * The index for the 2 entries per port is calculated as:
+ * index_1 = portno * TAS_ENTRIES_PER_PORT;
+ * index_2 = index_1 + 1;
+ *
+ * GCL entries are allocated from a free list which is generated each time we
+ * want to add a new schedule.
+ *
+ * The free list is organized as a bitmap with one bit for each GCL entry.
+ * All bits in the free list are first set to 1 (free) and then all schedules
+ * with state != TAS_STATE_ADMIN are examined.
+ * The GCL entries in use are removed from the free list by setting the
+ * coresponding bit to zero.
+ *
+ * We use 1 TAS profile per port:
+ * index = portno;
+ *
+ * We do not yet support frame preemption and the default guard band
+ * of 1536 bytes is always used on all queues.
+ *
+ * These are the possible combinations of states for the two TAS list in a
+ * running system (the temporary states ADVANCING and TERMINATING are not
+ * considered here):
+ *
+ * ADMIN/ADMIN: No schedules are currently operating or pending.
+ *
+ * ADMIN/PENDING: No schedule are currently operating but one is pending and
+ * when current time exceeds the configured base time it will automatically
+ * enter the OPERATING state. The state is now ADMIN/OPERATING.
+ *
+ * ADMIN/OPERATING: A schedule is currently operating and will run until it is
+ * terminated manually.
+ *
+ * OPERATING/PENDING: A schedule is currently operating and another is pending.
+ * When current time exceeds the configured base time for the pending schedule
+ * it will automatically stop the operating schedule and enter the OPERATING
+ * state. The state is now ADMIN/OPERATING.
+ *
+ * When we want to disable TAS on a port, we must stop schedules that are in
+ * state PENDING or OPERATING.
+ * Pending schedules are stopped first and then operating schedules.
+ * The gate state for the port must be restored to "all-queues-open" manually
+ * in case the schedule was stopped with one or more of the queues closed.
+ *
+ * When we add a schedule we always use a base time in the future, where base
+ * time is at least current time + (2 * cycle time). This is a requirement from
+ * the hardware. This means that a schedule will always start in state PENDING.
+ * It also means that we always use the new schedule to stop an eventually
+ * operating schedule.
+ *
+ * When we want to add a new schedule we must consider the current state of the
+ * two TAS list entries:
+ *
+ * ADMIN/ADMIN: Just add the new schedule in one of the TAS lists.
+ *
+ * ADMIN/PENDING: Stop the current pending schedule and add the new one.
+ *
+ * ADMIN/OPERATING: Add the new schedule in the TAS list that is currently in
+ * admin state and configure it to stop the currently operating schedule when
+ * current time exceeds the configured base time in the new schedule.
+ *
+ * OPERATING/PENDING: Stop the current pending schedule, add the new one and
+ * configure it to stop the currently operating schedule when
+ * current time exceeds the configured base time in the new schedule.
+ *
+ */
+
+static int sparx5_tas_list_index(struct sparx5_port *port, u8 tas_entry)
+{
+	return (port->portno * TAS_ENTRIES_PER_PORT) + tas_entry;
+}
+
+static char *sparx5_tas_state_to_str(int state)
+{
+	switch (state) {
+	case TAS_STATE_ADMIN:
+		return "ADMIN";
+	case TAS_STATE_ADVANCING:
+		return "ADVANCING";
+	case TAS_STATE_PENDING:
+		return "PENDING";
+	case TAS_STATE_OPERATING:
+		return "OPERATING";
+	case TAS_STATE_TERMINATING:
+		return "TERMINATING";
+	default:
+		return "??";
+	}
+}
+
+static int sparx5_tas_shutdown_pending(struct sparx5_port *port)
+{
+	struct sparx5 *sparx5 = port->sparx5;
+	int i, list, state;
+	unsigned long end;
+	u32 val;
+
+	netdev_dbg(port->ndev, "portno %u\n", port->portno);
+	for (i = 0; i < TAS_ENTRIES_PER_PORT; i++) {
+		list = sparx5_tas_list_index(port, i);
+		spx5_rmw(HSCH_TAS_CFG_CTRL_LIST_NUM_SET(list),
+			 HSCH_TAS_CFG_CTRL_LIST_NUM,
+			 sparx5,
+			 HSCH_TAS_CFG_CTRL);
+
+		val = spx5_rd(sparx5, HSCH_TAS_LIST_STATE);
+		state = HSCH_TAS_LIST_STATE_LIST_STATE_GET(val);
+		if (state != TAS_STATE_ADVANCING &&
+		    state != TAS_STATE_PENDING)
+			continue;
+
+		netdev_dbg(port->ndev, "state %s found in list %d\n",
+			   sparx5_tas_state_to_str(state), list);
+
+		/* Do not wait forever for the state change */
+		end = jiffies + msecs_to_jiffies(TAS_TIMEOUT_MS);
+		do {
+			spx5_rmw(HSCH_TAS_LIST_STATE_LIST_STATE_SET(TAS_STATE_ADMIN),
+				 HSCH_TAS_LIST_STATE_LIST_STATE,
+				 sparx5,
+				 HSCH_TAS_LIST_STATE);
+
+			val = spx5_rd(sparx5, HSCH_TAS_LIST_STATE);
+			state = HSCH_TAS_LIST_STATE_LIST_STATE_GET(val);
+			if (state == TAS_STATE_ADMIN)
+				break;
+
+			cond_resched();
+		} while (!time_after(jiffies, end));
+
+		if (state != TAS_STATE_ADMIN) {
+			netdev_err(port->ndev,
+				   "Timeout switching TAS state %s in list %d\n",
+				   sparx5_tas_state_to_str(state), list);
+			return -ETIME;
+		}
+	}
+	return 0;
+}
+
+static int sparx5_tas_shutdown_operating(struct sparx5_port *port)
+{
+	struct sparx5 *sparx5 = port->sparx5;
+	int i, list, state;
+	unsigned long end;
+	u32 val;
+
+	netdev_dbg(port->ndev, "portno %u\n", port->portno);
+	for (i = 0; i < TAS_ENTRIES_PER_PORT; i++) {
+		list = sparx5_tas_list_index(port, i);
+		spx5_rmw(HSCH_TAS_CFG_CTRL_LIST_NUM_SET(list),
+			 HSCH_TAS_CFG_CTRL_LIST_NUM,
+			 sparx5,
+			 HSCH_TAS_CFG_CTRL);
+
+		val = spx5_rd(sparx5, HSCH_TAS_LIST_STATE);
+		state = HSCH_TAS_LIST_STATE_LIST_STATE_GET(val);
+		if (state != TAS_STATE_OPERATING)
+			continue;
+
+		netdev_dbg(port->ndev, "state %s found in list %d\n",
+			   sparx5_tas_state_to_str(state), list);
+
+		/* Do not wait forever for the state change */
+		end = jiffies + msecs_to_jiffies(TAS_TIMEOUT_MS);
+		do {
+			spx5_rmw(HSCH_TAS_LIST_STATE_LIST_STATE_SET(TAS_STATE_TERMINATING),
+				 HSCH_TAS_LIST_STATE_LIST_STATE,
+				 sparx5,
+				 HSCH_TAS_LIST_STATE);
+
+			val = spx5_rd(sparx5, HSCH_TAS_LIST_STATE);
+			state = HSCH_TAS_LIST_STATE_LIST_STATE_GET(val);
+			if (state == TAS_STATE_TERMINATING ||
+			    state == TAS_STATE_ADMIN)
+				break;
+
+			cond_resched();
+		} while (!time_after(jiffies, end));
+
+		if (state != TAS_STATE_TERMINATING &&
+		    state != TAS_STATE_ADMIN) {
+			netdev_err(port->ndev,
+				   "Timeout switching TAS state %s in list %d\n",
+				   sparx5_tas_state_to_str(state), list);
+			return -ETIME;
+		}
+
+		/* Do not wait forever for the state change */
+		end = jiffies + msecs_to_jiffies(TAS_TIMEOUT_MS);
+		do {
+			val = spx5_rd(sparx5, HSCH_TAS_LIST_STATE);
+			state = HSCH_TAS_LIST_STATE_LIST_STATE_GET(val);
+			if (state == TAS_STATE_ADMIN)
+				break;
+
+			cond_resched();
+		} while (!time_after(jiffies, end));
+
+		if (state != TAS_STATE_ADMIN) {
+			netdev_err(port->ndev,
+				   "Timeout switching TAS state %s in list %d\n",
+				   sparx5_tas_state_to_str(state), list);
+			return -ETIME;
+		}
+
+		/* Restore gate state to "all-queues-open" */
+		/* Select port n on layer 2 of Hierarchical Scheduler */
+		spx5_wr(HSCH_TAS_GATE_STATE_CTRL_HSCH_POS_SET(5040 + 64 + port->portno),
+			sparx5,
+			HSCH_TAS_GATE_STATE_CTRL);
+		/* Set gate state to "all-queues-open" */
+		spx5_wr(HSCH_TAS_GATE_STATE_TAS_GATE_STATE_SET(0xff),
+			sparx5,
+			HSCH_TAS_GATE_STATE);
+	}
+	return 0;
+}
+
+/* Find a suitable list for a new schedule.
+ * First priority is a list in state pending.
+ * Second priority is a list in state admin.
+ * If list found is in state pending it is shut down here.
+ * Index of found list is returned in new.
+ * If an operating list is found, the index is returned in obsolete.
+ * This list must be configured to be shut down when the new list starts.
+ */
+static int sparx5_tas_list_find(struct sparx5_port *port, int *new,
+				int *obsolete)
+{
+	int i, err, state_cnt[NUM_TAS_STATE] = {0};
+	struct sparx5 *sparx5 = port->sparx5;
+	int state[TAS_ENTRIES_PER_PORT];
+	int list[TAS_ENTRIES_PER_PORT];
+	bool valid = false;
+	int oper = -1;
+	u32 val;
+
+	for (i = 0; i < TAS_ENTRIES_PER_PORT; i++) {
+		list[i] = sparx5_tas_list_index(port, i);
+		spx5_rmw(HSCH_TAS_CFG_CTRL_LIST_NUM_SET(list[i]),
+			 HSCH_TAS_CFG_CTRL_LIST_NUM,
+			 sparx5,
+			 HSCH_TAS_CFG_CTRL);
+
+		val = spx5_rd(sparx5, HSCH_TAS_LIST_STATE);
+		state[i] = HSCH_TAS_LIST_STATE_LIST_STATE_GET(val);
+		if (state[i] >= NUM_TAS_STATE) {
+			netdev_err(port->ndev, "Invalid tas list state %u %u %d\n",
+				   state[i], port->portno, i);
+			return -EINVAL;
+		}
+
+		if (state[i] == TAS_STATE_OPERATING)
+			oper = list[i];
+
+		state_cnt[state[i]]++;
+	}
+
+	if (state_cnt[TAS_STATE_ADMIN] == 2)
+		valid = true;
+	if (state_cnt[TAS_STATE_ADMIN] == 1 && state_cnt[TAS_STATE_PENDING] == 1)
+		valid = true;
+	if (state_cnt[TAS_STATE_ADMIN] == 1 && state_cnt[TAS_STATE_OPERATING] == 1)
+		valid = true;
+	if (state_cnt[TAS_STATE_OPERATING] == 1 && state_cnt[TAS_STATE_PENDING] == 1)
+		valid = true;
+
+	if (!valid) {
+		netdev_err(port->ndev, "Invalid tas state combination: %d %d %d %d %d\n",
+			   state_cnt[TAS_STATE_ADMIN],
+			   state_cnt[TAS_STATE_ADVANCING],
+			   state_cnt[TAS_STATE_PENDING],
+			   state_cnt[TAS_STATE_OPERATING],
+			   state_cnt[TAS_STATE_TERMINATING]);
+		return -1;
+	}
+
+	for (i = 0; i < TAS_ENTRIES_PER_PORT; i++) {
+		if (state[i] == TAS_STATE_PENDING) {
+			err = sparx5_tas_shutdown_pending(port);
+			if (err)
+				return err;
+			*new = list[i];
+			*obsolete = (oper == -1) ? *new : oper;
+			return 0;
+		}
+	}
+
+	for (i = 0; i < TAS_ENTRIES_PER_PORT; i++) {
+		if (state[i] == TAS_STATE_ADMIN) {
+			*new = list[i];
+			*obsolete = (oper == -1) ? *new : oper;
+			return 0;
+		}
+	}
+	return -1; /* No suitable list found */
+}
+
+/* Get a bitmap of all free GCLs
+ * Return number of free GCLs found
+ */
+static int sparx5_tas_gcl_free_get(struct sparx5_port *port, unsigned long *free_list)
+{
+	struct sparx5 *sparx5 = port->sparx5;
+	int num_free = TAS_NUM_GCL;
+	u32 base, curr, length;
+	int state, list;
+	u32 val, cfg;
+
+	bitmap_fill(free_list, TAS_NUM_GCL); /* Start with all free */
+
+	for (list = 0; list < num_tas_lists; list++) {
+		spx5_rmw(HSCH_TAS_CFG_CTRL_LIST_NUM_SET(list),
+			 HSCH_TAS_CFG_CTRL_LIST_NUM,
+			 sparx5,
+			 HSCH_TAS_CFG_CTRL);
+
+		val = spx5_rd(sparx5, HSCH_TAS_LIST_STATE);
+		state = HSCH_TAS_LIST_STATE_LIST_STATE_GET(val);
+		if (state == TAS_STATE_ADMIN)
+			continue;
+
+		cfg = spx5_rd(sparx5, HSCH_TAS_LIST_CFG);
+		base = HSCH_TAS_LIST_CFG_LIST_BASE_ADDR_GET(cfg);
+		length = HSCH_TAS_LIST_CFG_LIST_LENGTH_GET(cfg);
+
+		for (curr = base; curr < base + length; curr++) {
+			if (!test_bit(curr, free_list)) {
+				netdev_err(port->ndev,
+					   "List %d: GCL entry %u used multiple times!\n",
+					   list, curr);
+				return -EEXIST;
+			}
+			clear_bit(curr, free_list); /* Mark as not free */
+			num_free--;
+
+			spx5_rmw(HSCH_TAS_CFG_CTRL_GCL_ENTRY_NUM_SET(curr),
+				 HSCH_TAS_CFG_CTRL_GCL_ENTRY_NUM,
+				 sparx5,
+				 HSCH_TAS_CFG_CTRL);
+		}
+	}
+	return num_free;
+}
+
+/* Find N continuous GCL entries */
+static int sparx5_tas_gcl_base_get(unsigned long *free_list, int num_entries)
+{
+	int i, empty_found;
+
+	empty_found = 0;
+	for (i = 0; i < TAS_NUM_GCL; i++) {
+		if (test_bit(i, free_list))
+			empty_found++;
+		else
+			empty_found = 0;
+
+		if (empty_found == num_entries)
+			return (i - num_entries) + 1;
+	}
+
+	return -1;
+}
+
+/* Setup GCLs for a specific list */
+static int sparx5_tas_gcl_setup(struct sparx5_port *port, int list,
+				struct tc_taprio_qopt_offload *qopt)
+{
+	DECLARE_BITMAP(free_list, TAS_NUM_GCL);
+	struct sparx5 *sparx5 = port->sparx5;
+	int i, num_free, base;
+
+	num_free = sparx5_tas_gcl_free_get(port, free_list);
+	if (num_free < (int)qopt->num_entries) {
+		netdev_info(port->ndev, "Not enough free GCL entries!\n");
+		return -1;
+	}
+
+	base = sparx5_tas_gcl_base_get(free_list, qopt->num_entries);
+	if (base < 0) {
+		netdev_err(port->ndev, "Can't find %lu continuous GCL entries\n",
+			   qopt->num_entries);
+		return -1;
+	}
+
+	netdev_dbg(port->ndev, "gcl setup list %d, base %d num_free %d\n",
+		   list, base, num_free);
+
+	for (i = 0; i < TAS_ENTRIES_PER_PORT; i++) {
+		spx5_rmw(HSCH_TAS_CFG_CTRL_LIST_NUM_SET(list + i),
+			 HSCH_TAS_CFG_CTRL_LIST_NUM,
+			 sparx5,
+			 HSCH_TAS_CFG_CTRL);
+
+		spx5_rmw(HSCH_TAS_LIST_CFG_LIST_BASE_ADDR_SET(base),
+			 HSCH_TAS_LIST_CFG_LIST_BASE_ADDR,
+			 sparx5,
+			 HSCH_TAS_LIST_CFG);
+
+		spx5_rmw(HSCH_TAS_LIST_CFG_LIST_LENGTH_SET(qopt->num_entries),
+			 HSCH_TAS_LIST_CFG_LIST_LENGTH,
+			 sparx5,
+			 HSCH_TAS_LIST_CFG);
+	}
+
+	for (i = 0; i < qopt->num_entries; i++) {
+		/* GCL index is relative to BASE_ADDR */
+		spx5_rmw(HSCH_TAS_CFG_CTRL_GCL_ENTRY_NUM_SET(i),
+			 HSCH_TAS_CFG_CTRL_GCL_ENTRY_NUM,
+			 sparx5,
+			 HSCH_TAS_CFG_CTRL);
+
+		/* These are configured through TAS Profiles */
+		switch (qopt->entries[i].command) {
+		case TC_TAPRIO_CMD_SET_GATES:
+			/*cmd = TAS_GCL_CMD_SET_GATE_STATES;*/
+			break;
+		/*case TC_TAPRIO_CMD_SET_AND_HOLD:*/
+			/*cmd = TAS_GCL_CMD_SET_AND_HOLD_MAC;*/
+			/*break;*/
+		/*case TC_TAPRIO_CMD_SET_AND_RELEASE:*/
+			/*cmd = TAS_GCL_CMD_SET_AND_RELEASE_MAC;*/
+			/*break;*/
+		default:
+			netdev_err(port->ndev,
+				   "TAS: Unsupported GCL command: %d\n",
+				   qopt->entries[i].command);
+			return -1;
+		}
+
+		/* Set HSCH_POS to layer 2, port n */
+		spx5_wr(HSCH_TAS_GCL_CTRL_CFG_GATE_STATE_SET(qopt->entries[i].gate_mask) |
+			HSCH_TAS_GCL_CTRL_CFG_HSCH_POS_SET(5040 + 64 + port->portno) |
+			HSCH_TAS_GCL_CTRL_CFG_PORT_PROFILE_SET(port->portno),
+			sparx5,
+			HSCH_TAS_GCL_CTRL_CFG);
+
+		spx5_wr(qopt->entries[i].interval,
+			sparx5,
+			HSCH_TAS_GCL_TIME_CFG);
+	}
+	return 0;
+}
+
+int sparx5_tas_enable(struct sparx5_port *port,
+		      struct tc_taprio_qopt_offload *qopt)
+{
+	int i, err, new_list = -1, obsolete = -1;
+	struct sparx5 *sparx5 = port->sparx5;
+	u64 cycle_time = qopt->cycle_time;
+	u64 calculated_cycle_time = 0;
+	struct timespec64 ts;
+	ktime_t base_time;
+
+	if (cycle_time > TAS_MAX_CYCLE_TIME_NS) {
+		netdev_err(port->ndev, "Invalid cycle_time %llu\n",
+			   (unsigned long long)cycle_time);
+		return -EINVAL;
+	}
+	for (i = 0; i < qopt->num_entries; i++) {
+		if (qopt->entries[i].interval < TAS_MIN_CYCLE_TIME_NS) {
+			netdev_err(port->ndev, "Invalid minimum cycle time %llu\n",
+				   (unsigned long long)qopt->entries[i].interval);
+			return -EINVAL;
+		}
+		if (qopt->entries[i].interval > TAS_MAX_CYCLE_TIME_NS) {
+			netdev_err(port->ndev, "Invalid maximum cycle time %llu\n",
+				   (unsigned long long)qopt->entries[i].interval);
+			return -EINVAL;
+		}
+		calculated_cycle_time += qopt->entries[i].interval;
+	}
+	if (calculated_cycle_time > TAS_MAX_CYCLE_TIME_NS) {
+		netdev_err(port->ndev, "Invalid calculated_cycle_time %llu\n",
+			   (unsigned long long)calculated_cycle_time);
+		return -EINVAL;
+	}
+	if (cycle_time < calculated_cycle_time) {
+		netdev_err(port->ndev, "Invalid cycle_time %llu\n",
+			   (unsigned long long)cycle_time);
+		return -EINVAL;
+	}
+
+	sparx5_new_base_time(sparx5, cycle_time, qopt->base_time, &base_time);
+
+	/* Select an appropriate entry to use */
+	err = sparx5_tas_list_find(port, &new_list, &obsolete);
+	netdev_dbg(port->ndev, "sparx5_tas_list_find() returned %d %d %d\n",
+		   err, new_list, obsolete);
+	if (err)
+		return err;
+
+	/* Setup GCL entries */
+	err = sparx5_tas_gcl_setup(port, new_list, qopt);
+	if (err)
+		return err;
+
+	/* Setup TAS list */
+	ts = ktime_to_timespec64(base_time);
+	spx5_wr(HSCH_TAS_BASE_TIME_NSEC_BASE_TIME_NSEC_SET(ts.tv_nsec),
+		sparx5,
+		HSCH_TAS_BASE_TIME_NSEC);
+
+	spx5_wr((ts.tv_sec & GENMASK(31, 0)),
+		sparx5,
+		HSCH_TAS_BASE_TIME_SEC_LSB);
+
+	spx5_wr(HSCH_TAS_BASE_TIME_SEC_MSB_BASE_TIME_SEC_MSB_SET(ts.tv_sec >> 32),
+		sparx5,
+		HSCH_TAS_BASE_TIME_SEC_MSB);
+
+	spx5_wr(cycle_time,
+		sparx5,
+		HSCH_TAS_CYCLE_TIME_CFG);
+
+	spx5_rmw(HSCH_TAS_STARTUP_CFG_OBSOLETE_IDX_SET(obsolete),
+		 HSCH_TAS_STARTUP_CFG_OBSOLETE_IDX,
+		 sparx5,
+		 HSCH_TAS_STARTUP_CFG);
+
+	/* Start list processing */
+	spx5_rmw(HSCH_TAS_LIST_STATE_LIST_STATE_SET(TAS_STATE_ADVANCING),
+		 HSCH_TAS_LIST_STATE_LIST_STATE,
+		 sparx5,
+		 HSCH_TAS_LIST_STATE);
+
+	return err;
+}
+
+int sparx5_tas_disable(struct sparx5_port *port)
+{
+	int err;
+
+	err = sparx5_tas_shutdown_pending(port);
+	if (err)
+		goto out;
+
+	err = sparx5_tas_shutdown_operating(port);
+out:
+	return err;
+}
+
+static int sparx5_tas_init(struct sparx5 *sparx5)
+{
+	int i;
+
+	num_ports = sparx5->port_count;
+	num_tas_lists = num_ports * TAS_ENTRIES_PER_PORT;
+
+	spx5_wr(HSCH_TAS_STATEMACHINE_CFG_REVISIT_DLY_SET((256 * 1000) /
+					    sparx5_clk_period(sparx5->coreclock)),
+		sparx5,
+		HSCH_TAS_STATEMACHINE_CFG);
+
+	/* For now we always use guard band on all queues */
+	spx5_rmw(HSCH_TAS_CFG_CTRL_LIST_NUM_MAX_SET(num_tas_lists) |
+		 HSCH_TAS_CFG_CTRL_ALWAYS_GUARD_BAND_SCH_Q_SET(1),
+		 HSCH_TAS_CFG_CTRL_LIST_NUM_MAX |
+		 HSCH_TAS_CFG_CTRL_ALWAYS_GUARD_BAND_SCH_Q,
+		 sparx5,
+		 HSCH_TAS_CFG_CTRL);
+
+	/* Associate profile with port */
+	for (i = 0; i < num_ports; i++)
+		spx5_rmw(HSCH_TAS_PROFILE_CONFIG_PORT_NUM_SET(i),
+			 HSCH_TAS_PROFILE_CONFIG_PORT_NUM,
+			 sparx5,
+			 HSCH_TAS_PROFILE_CONFIG(i));
+
+	return 0;
+}
+
+void sparx5_tas_speed(struct sparx5_port *port, int speed)
+{
+	struct sparx5 *sparx5 = port->sparx5;
+	u8 spd;
+
+	netdev_dbg(port->ndev, "speed %d\n", speed);
+
+	/* Update TAS profile speed */
+	switch (speed) {
+	case SPEED_10:
+		spd = TAS_SPEED_10;
+		break;
+	case SPEED_100:
+		spd = TAS_SPEED_100;
+		break;
+	case SPEED_1000:
+		spd = TAS_SPEED_1000;
+		break;
+	case SPEED_2500:
+		spd = TAS_SPEED_2500;
+		break;
+	case SPEED_5000:
+		spd = TAS_SPEED_5000;
+		break;
+	case SPEED_10000:
+		spd = TAS_SPEED_10000;
+		break;
+	case SPEED_25000:
+		spd = TAS_SPEED_25000;
+		break;
+	default:
+		netdev_info(port->ndev, "TAS: Unsupported speed: %d\n", speed);
+		return;
+	}
+
+	spx5_rmw(HSCH_TAS_PROFILE_CONFIG_LINK_SPEED_SET(spd),
+		 HSCH_TAS_PROFILE_CONFIG_LINK_SPEED,
+		 sparx5,
+		 HSCH_TAS_PROFILE_CONFIG(port->portno));
+}
+
+int sparx5_qos_init(struct sparx5 *sparx5)
+{
+	int ret;
+
+	ret = sparx5_tas_init(sparx5);
+	if (ret)
+		return ret;
+
+	return 0;
+}

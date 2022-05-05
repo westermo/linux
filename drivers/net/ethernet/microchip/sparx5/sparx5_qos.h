@@ -8,6 +8,8 @@
 #define __SPARX5_QOS_H__
 
 #include <linux/netdevice.h>
+#include <linux/types.h>
+#include <net/pkt_sched.h>
 
 /* Number of Layers */
 #define SPX5_HSCH_LAYER_CNT 3
@@ -79,4 +81,23 @@ int sparx5_tc_ets_add(struct sparx5_port *port,
 
 int sparx5_tc_ets_del(struct sparx5_port *port);
 
-#endif	/* __SPARX5_QOS_H__ */
+struct sparx5;
+struct sparx5_port;
+
+/*******************************************************************************
+ * TAS (Time Aware Shaper - 802.1Qbv)
+ ******************************************************************************/
+int sparx5_tas_enable(struct sparx5_port *port,
+		      struct tc_taprio_qopt_offload *qopt);
+
+int sparx5_tas_disable(struct sparx5_port *port);
+
+/* The current speed is needed in order to calculate the guard band */
+void sparx5_tas_speed(struct sparx5_port *port, int speed);
+
+/*******************************************************************************
+ * QoS Initialization
+ ******************************************************************************/
+int sparx5_qos_init(struct sparx5 *sparx5);
+
+#endif /* _SPARX5_QOS_H_ */
