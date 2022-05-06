@@ -153,6 +153,7 @@ struct switchdev_obj_ring_role_mrp {
 	u8 ring_role;
 	u32 ring_id;
 	u8 sw_backup;
+	u16 vid;
 };
 
 #define SWITCHDEV_OBJ_RING_ROLE_MRP(OBJ) \

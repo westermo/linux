@@ -83,6 +83,7 @@ br_mrp_switchdev_set_ring_role(struct net_bridge *br, struct br_mrp *mrp,
 		.ring_role = role,
 		.ring_id = mrp->ring_id,
 		.sw_backup = false,
+		.vid = mrp->vid,
 	};
 	enum br_mrp_hw_support support;
 	int err;
