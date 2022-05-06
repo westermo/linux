@@ -38,11 +38,17 @@ int br_mrp_switchdev_add(struct net_bridge *br, struct br_mrp *mrp)
 		.ring_id = mrp->ring_id,
 		.prio = mrp->prio,
 	};
+	int err = 0;
 
 	if (!IS_ENABLED(CONFIG_NET_SWITCHDEV))
 		return 0;
 
-	return switchdev_port_obj_add(br->dev, &mrp_obj.obj, NULL);
+	err = switchdev_port_obj_add(br->dev, &mrp_obj.obj, NULL);
+
+	if (err && err != -EOPNOTSUPP)
+		return err;
+
+	return 0;
 }
 
 int br_mrp_switchdev_del(struct net_bridge *br, struct br_mrp *mrp)
@@ -54,11 +60,17 @@ int br_mrp_switchdev_del(struct net_bridge *br, struct br_mrp *mrp)
 		.s_port = NULL,
 		.ring_id = mrp->ring_id,
 	};
+	int err = 0;
 
 	if (!IS_ENABLED(CONFIG_NET_SWITCHDEV))
 		return 0;
 
-	return switchdev_port_obj_del(br->dev, &mrp_obj.obj);
+	err = switchdev_port_obj_del(br->dev, &mrp_obj.obj);
+
+	if (err && err != -EOPNOTSUPP)
+		return err;
+
+	return 0;
 }
 
 enum br_mrp_hw_support
@@ -92,7 +104,7 @@ br_mrp_switchdev_set_ring_role(struct net_bridge *br, struct br_mrp *mrp,
 	else
 		err = switchdev_port_obj_del(br->dev, &mrp_role.obj);
 
-	if (!err)
+	if (!err || err == -EOPNOTSUPP)
 		return BR_MRP_SW;
 
 	return BR_MRP_NONE;
@@ -112,11 +124,17 @@ br_mrp_switchdev_send_ring_test(struct net_bridge *br, struct br_mrp *mrp,
 		.period = period,
 		.monitor = monitor,
 	};
+	int err = 0;
 
 	if (!IS_ENABLED(CONFIG_NET_SWITCHDEV))
 		return BR_MRP_SW;
 
-	return br_mrp_switchdev_port_obj(br, &test.obj, interval != 0);
+	err = br_mrp_switchdev_port_obj(br, &test.obj, interval != 0);
+
+	if (err && err != -EOPNOTSUPP)
+		return err;
+
+	return 0;
 }
 
 int br_mrp_switchdev_set_ring_state(struct net_bridge *br,
@@ -129,11 +147,17 @@ int br_mrp_switchdev_set_ring_state(struct net_bridge *br,
 		.ring_state = state,
 		.ring_id = mrp->ring_id,
 	};
+	int err = 0;
 
 	if (!IS_ENABLED(CONFIG_NET_SWITCHDEV))
 		return 0;
 
-	return switchdev_port_obj_add(br->dev, &mrp_state.obj, NULL);
+	err = switchdev_port_obj_add(br->dev, &mrp_state.obj, NULL);
+
+	if (err && err != -EOPNOTSUPP)
+		return err;
+
+	return 0;
 }
 
 enum br_mrp_hw_support
@@ -170,7 +194,7 @@ br_mrp_switchdev_set_in_role(struct net_bridge *br, struct br_mrp *mrp,
 	else
 		err = switchdev_port_obj_del(br->dev, &mrp_role.obj);
 
-	if (!err)
+	if (!err || err == -EOPNOTSUPP)
 		return BR_MRP_SW;
 
 	return BR_MRP_NONE;
@@ -185,11 +209,17 @@ int br_mrp_switchdev_set_in_state(struct net_bridge *br, struct br_mrp *mrp,
 		.in_state = state,
 		.in_id = mrp->in_id,
 	};
+	int err = 0;
 
 	if (!IS_ENABLED(CONFIG_NET_SWITCHDEV))
 		return 0;
 
-	return switchdev_port_obj_add(br->dev, &mrp_state.obj, NULL);
+	err = switchdev_port_obj_add(br->dev, &mrp_state.obj, NULL);
+
+	if (err && err != -EOPNOTSUPP)
+		return err;
+
+	return 0;
 }
 
 enum br_mrp_hw_support
@@ -204,11 +234,17 @@ br_mrp_switchdev_send_in_test(struct net_bridge *br, struct br_mrp *mrp,
 		.in_id = mrp->in_id,
 		.period = period,
 	};
+	int err = 0;
 
 	if (!IS_ENABLED(CONFIG_NET_SWITCHDEV))
 		return BR_MRP_SW;
 
-	return br_mrp_switchdev_port_obj(br, &test.obj, interval != 0);
+	err = br_mrp_switchdev_port_obj(br, &test.obj, interval != 0);
+
+	if (err && err != -EOPNOTSUPP)
+		return err;
+
+	return 0;
 }
 
 int br_mrp_port_switchdev_set_state(struct net_bridge_port *p, u32 state)
@@ -218,11 +254,17 @@ int br_mrp_port_switchdev_set_state(struct net_bridge_port *p, u32 state)
 		.id = SWITCHDEV_ATTR_ID_PORT_STP_STATE,
 		.u.stp_state = state,
 	};
+	int err = 0;
 
 	if (!IS_ENABLED(CONFIG_NET_SWITCHDEV))
 		return 0;
 
-	return switchdev_port_attr_set(p->dev, &attr, NULL);
+	err = switchdev_port_attr_set(p->dev, &attr, NULL);
+
+	if (err && err != -EOPNOTSUPP)
+		return err;
+
+	return 0;
 }
 
 int br_mrp_port_switchdev_set_role(struct net_bridge_port *p,
@@ -233,9 +275,15 @@ int br_mrp_port_switchdev_set_role(struct net_bridge_port *p,
 		.id = SWITCHDEV_ATTR_ID_MRP_PORT_ROLE,
 		.u.mrp_port_role = role,
 	};
+	int err = 0;
 
 	if (!IS_ENABLED(CONFIG_NET_SWITCHDEV))
 		return 0;
 
-	return switchdev_port_attr_set(p->dev, &attr, NULL);
+	err = switchdev_port_attr_set(p->dev, &attr, NULL);
+
+	if (err && err != -EOPNOTSUPP)
+		return err;
+
+	return 0;
 }
