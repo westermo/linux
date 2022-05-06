@@ -236,6 +236,8 @@ struct mv88e6xxx_port_hwtstamp {
 	struct hwtstamp_config tstamp_config;
 };
 
+#define MV88E6xxx_RXNFC_VF_TRAP     1
+
 enum mv88e6xxx_policy_mapping {
 	MV88E6XXX_POLICY_MAPPING_DA,
 	MV88E6XXX_POLICY_MAPPING_SA,
@@ -252,6 +254,7 @@ enum mv88e6xxx_policy_action {
 	MV88E6XXX_POLICY_ACTION_MIRROR,
 	MV88E6XXX_POLICY_ACTION_TRAP,
 	MV88E6XXX_POLICY_ACTION_DISCARD,
+	MV88E6XXX_POLICY_ACTION_MGMT_TRAP
 };
 
 struct mv88e6xxx_policy {
@@ -260,6 +263,7 @@ struct mv88e6xxx_policy {
 	struct ethtool_rx_flow_spec fs;
 	u8 addr[ETH_ALEN];
 	int port;
+	int policy_port;
 	u16 vid;
 };
 

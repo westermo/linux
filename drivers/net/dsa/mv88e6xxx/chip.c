@@ -2498,6 +2498,9 @@ static int mv88e6xxx_policy_apply(struct mv88e6xxx_chip *chip, int port,
 		else if (action == MV88E6XXX_POLICY_ACTION_DISCARD &&
 			 is_unicast_ether_addr(addr))
 			state = MV88E6XXX_G1_ATU_DATA_STATE_UC_STATIC_POLICY;
+		else if (action == MV88E6XXX_POLICY_ACTION_MGMT_TRAP &&
+			 is_multicast_ether_addr(addr))
+			state = MV88E6XXX_G1_ATU_DATA_STATE_MC_STATIC_DA_MGMT;
 		else
 			return -EOPNOTSUPP;
 
@@ -2510,10 +2513,14 @@ static int mv88e6xxx_policy_apply(struct mv88e6xxx_chip *chip, int port,
 		return -EOPNOTSUPP;
 	}
 
+	/* Skip action is managment trap becasue only the fdb is involved */
+	if (action == MV88E6XXX_POLICY_ACTION_MGMT_TRAP)
+		return 0;
+
 	/* Skip the port's policy clearing if the mapping is still in use */
 	if (action == MV88E6XXX_POLICY_ACTION_NORMAL)
 		idr_for_each_entry(&chip->policies, policy, id)
-			if (policy->port == port &&
+			if (policy->policy_port == port &&
 			    policy->mapping == mapping &&
 			    policy->action != action)
 				return 0;
@@ -2526,6 +2533,8 @@ static int mv88e6xxx_policy_insert(struct mv88e6xxx_chip *chip, int port,
 {
 	struct ethhdr *mac_entry = &fs->h_u.ether_spec;
 	struct ethhdr *mac_mask = &fs->m_u.ether_spec;
+	u64 vf = ethtool_get_flow_spec_ring_vf(fs->ring_cookie);
+	u64 ring = ethtool_get_flow_spec_ring(fs->ring_cookie);
 	enum mv88e6xxx_policy_mapping mapping;
 	enum mv88e6xxx_policy_action action;
 	struct mv88e6xxx_policy *policy;
@@ -2533,13 +2542,14 @@ static int mv88e6xxx_policy_insert(struct mv88e6xxx_chip *chip, int port,
 	u8 *addr;
 	int err;
 	int id;
+	int policy_port = port;
 
-	if (fs->location != RX_CLS_LOC_ANY)
-		return -EINVAL;
-
-	if (fs->ring_cookie == RX_CLS_FLOW_DISC)
+ 	if (fs->ring_cookie == RX_CLS_FLOW_DISC)
 		action = MV88E6XXX_POLICY_ACTION_DISCARD;
-	else
+	else if ((vf == MV88E6xxx_RXNFC_VF_TRAP) && (ring == 0x7c)) {
+		action = MV88E6XXX_POLICY_ACTION_MGMT_TRAP;
+		policy_port = dsa_upstream_port(chip->ds, port);
+	} else
 		return -EOPNOTSUPP;
 
 	switch (fs->flow_type & ~FLOW_EXT) {
@@ -2568,8 +2578,8 @@ static int mv88e6xxx_policy_insert(struct mv88e6xxx_chip *chip, int port,
 	}
 
 	idr_for_each_entry(&chip->policies, policy, id) {
-		if (policy->port == port && policy->mapping == mapping &&
-		    policy->action == action && policy->vid == vid &&
+		if (policy->port == port && policy->policy_port == policy_port &&
+		    policy->mapping == mapping && policy->action == action && policy->vid == vid &&
 		    ether_addr_equal(policy->addr, addr))
 			return -EEXIST;
 	}
@@ -2578,7 +2588,6 @@ static int mv88e6xxx_policy_insert(struct mv88e6xxx_chip *chip, int port,
 	if (!policy)
 		return -ENOMEM;
 
-	fs->location = 0;
 	err = idr_alloc_u32(&chip->policies, policy, &fs->location, 0xffffffff,
 			    GFP_KERNEL);
 	if (err) {
@@ -2591,9 +2600,10 @@ static int mv88e6xxx_policy_insert(struct mv88e6xxx_chip *chip, int port,
 	policy->mapping = mapping;
 	policy->action = action;
 	policy->port = port;
+	policy->policy_port = policy_port;
 	policy->vid = vid;
 
-	err = mv88e6xxx_policy_apply(chip, port, policy);
+	err = mv88e6xxx_policy_apply(chip, policy_port, policy);
 	if (err) {
 		idr_remove(&chip->policies, fs->location);
 		devm_kfree(chip->dev, policy);
@@ -2669,7 +2679,7 @@ static int mv88e6xxx_set_rxnfc(struct dsa_switch *ds, int port,
 		policy = idr_remove(&chip->policies, fs->location);
 		if (policy) {
 			policy->action = MV88E6XXX_POLICY_ACTION_NORMAL;
-			err = mv88e6xxx_policy_apply(chip, port, policy);
+			err = mv88e6xxx_policy_apply(chip, policy->policy_port, policy);
 			devm_kfree(chip->dev, policy);
 		}
 		break;
