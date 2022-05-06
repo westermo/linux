@@ -1203,6 +1203,29 @@ static int br_mrp_rcv(struct net_bridge_port *p,
 			br_mrp_mra_process(mrp, br, p, skb);
 		}
 
+		/* When we recieve a MRP frame here when acting as a MRC, we
+                 * want to always indicate that they belong to the same
+                 * hw_domain. This will have either of the following effects,
+                 * depending on the current state of the offload_fwd_mark:
+		 *
+		 *   1. If offload_fwd_mark=0, i.e. the frame has not been
+                 *      forwarded in hw (no tx fwd offloading of MRP frames). In
+                 *      this situation the frame should not have its
+                 *      offload_fwd_mark be changed to 1 during the br_forward
+                 *      call chain in nbp_switchdev_can_offload_tx_fwd().
+		 *
+		 *   2. If offload_fwd_mark=1, i.e. the frame has been forwarded
+                 *      in hw. Then when we reach the br_forward call we want
+                 *      that to notice that the frame should not be forwarded,
+                 *      in the call to nbp_switchdev_allowed_egress(). We need
+                 *      to ensure the same hw_domain and offload_fwd_mark is 1.
+                 */
+		if (mrp->ring_role == BR_MRP_RING_ROLE_MRC) {
+			nbp_switchdev_frame_mark(p == p_dst ? s_dst : p_dst,
+						 skb);
+
+		}
+
 		goto forward;
 	}
 
