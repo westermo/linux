@@ -128,6 +128,25 @@ enum dsa_code {
 #define DSA_RMU_PRIO    6
 #define DSA_RMU_RESV2   0xf
 
+struct dsa_tagger_private {
+	struct mv88e6xxx_tagger_data data;
+
+	bool port_mrp_tx_fwd_offload[DSA_MAX_PORTS];
+};
+
+static struct dsa_tagger_private *
+dsa_tagger_private(struct dsa_switch *ds)
+{
+	return ds->tagger_data;
+}
+
+void set_port_mrp_tx_fwd_offload(struct dsa_switch *ds, int port, bool on)
+{
+	struct dsa_tagger_private *priv = dsa_tagger_private(ds);
+
+	priv->port_mrp_tx_fwd_offload[port] = on;
+}
+
 static int dsa_inband_xmit_ll(struct sk_buff *skb, struct net_device *dev, const u8 *header,
 			      int header_len, int seq_no)
 {
@@ -292,11 +311,12 @@ static struct sk_buff *dsa_xmit_ll(struct sk_buff *skb, struct net_device *dev,
 static struct sk_buff *dsa_rcv_ll(struct sk_buff *skb, struct net_device *dev,
 				  u8 extra)
 {
-	bool trap = false, trunk = false;
+	bool trap = false, trunk = false, trap_mrp = false;
 	int source_device, source_port;
 	enum dsa_code code;
 	enum dsa_cmd cmd;
 	u8 *dsa_header;
+	u16 ethertype;
 
 	/* The ethertype field is part of the DSA header. */
 	dsa_header = dsa_etype_header_pos_rx(skb);
@@ -328,6 +348,17 @@ static struct sk_buff *dsa_rcv_ll(struct sk_buff *skb, struct net_device *dev,
 			 * forwarded by hardware, so don't mark them.
 			 */
 			trap = true;
+
+			/* Special case for MRP frames. It is possible that we
+			 * receive MRP frames that have already been forwarded
+			 * in the HW. Indicate that we have received a trapped
+			 * MRP frame, so we later in this function can verify if
+			 * the port the frame entered on has forwarded the frame
+			 * in hw.
+			 */
+			ethertype = ntohs(*((u16*)(skb->data + 2)));
+			if (ethertype == ETH_P_MRP)
+				trap_mrp = true;
 			break;
 		default:
 			/* Reserved code, this could be anything. Drop
@@ -363,6 +394,9 @@ static struct sk_buff *dsa_rcv_ll(struct sk_buff *skb, struct net_device *dev,
 	if (!skb->dev)
 		return NULL;
 
+	/* If this skb has been identified as a trapped mrp frame, it is
+	 * possible that this has been tx fwd offloaded in HW. If that is the case we change the  */
+
 	/* When using LAG offload, skb->dev is not a DSA slave interface,
 	 * so we cannot call dsa_default_offload_fwd_mark and we need to
 	 * special-case it.
@@ -371,6 +405,18 @@ static struct sk_buff *dsa_rcv_ll(struct sk_buff *skb, struct net_device *dev,
 		skb->offload_fwd_mark = true;
 	else if (!trap)
 		dsa_default_offload_fwd_mark(skb);
+	else if (trap_mrp) {
+		struct dsa_port *dp = dsa_slave_to_port(skb->dev);
+
+		/* Special case if we have trapped a MRP frame and this frame
+		 * has been tx fwd offloaded, we need to mark the
+		 * offload_fwd_mark to indicate this. Otherwise we risk the
+		 * frame beeing forwared again by SW.
+		*/
+		if (dp && dsa_tagger_private(dp->ds)
+				  ->port_mrp_tx_fwd_offload[dp->index])
+			skb->offload_fwd_mark = true;
+	}
 
 	/* If the 'tagged' bit is set; convert the DSA tag to a 802.1Q
 	 * tag, and delete the ethertype (extra) if applicable. If the
@@ -430,12 +476,39 @@ static struct sk_buff *dsa_rcv(struct sk_buff *skb, struct net_device *dev)
 	return dsa_rcv_ll(skb, dev, 0);
 }
 
+static void dsa_disconnect(struct dsa_switch *ds)
+{
+	struct dsa_tagger_private *priv = ds->tagger_data;
+
+	kfree(priv);
+	ds->tagger_data = NULL;
+}
+
+static int dsa_connect(struct dsa_switch *ds)
+{
+	struct mv88e6xxx_tagger_data *tagger_data;
+	struct dsa_tagger_private *priv;
+
+	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
+	if (!priv)
+		return -ENOMEM;
+
+	/* Export functions for switch driver use */
+	tagger_data = &priv->data;
+	tagger_data->set_port_mrp_tx_fwd_offload = set_port_mrp_tx_fwd_offload;
+	ds->tagger_data = priv;
+
+	return 0;
+}
+
 static const struct dsa_device_ops dsa_netdev_ops = {
 	.name	  = "dsa",
 	.proto	  = DSA_TAG_PROTO_DSA,
 	.xmit	  = dsa_xmit,
 	.rcv	  = dsa_rcv,
 	.inband_xmit = dsa_inband_xmit,
+	.connect  = dsa_connect,
+	.disconnect = dsa_disconnect,
 	.needed_headroom = DSA_HLEN,
 };
 
@@ -479,6 +552,8 @@ static const struct dsa_device_ops edsa_netdev_ops = {
 	.xmit	  = edsa_xmit,
 	.rcv	  = edsa_rcv,
 	.inband_xmit = edsa_inband_xmit,
+	.connect  = dsa_connect,
+	.disconnect = dsa_disconnect,
 	.needed_headroom = EDSA_HLEN,
 };
 
