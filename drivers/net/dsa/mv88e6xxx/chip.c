@@ -31,6 +31,7 @@
 #include <linux/gpio/consumer.h>
 #include <linux/phylink.h>
 #include <linux/leds.h>
+#include <linux/mrp_bridge.h>
 #include <net/dsa.h>
 #include <net/pkt_cls.h>
 
@@ -8235,6 +8236,216 @@ static int mv88e6xxx_port_setup_tc(struct dsa_switch *ds, int port,
 	}
 }
 
+static int mv88e6xxx_port_mrp_add(struct dsa_switch *ds, int port,
+				  const struct switchdev_obj_mrp *mrp)
+{
+	struct mv88e6xxx_chip *chip = ds->priv;
+	struct mv88e6xxx_port *p;
+	struct net_device *dev;
+	struct dsa_port *dp;
+
+	p = &chip->ports[port];
+
+	dp = dsa_to_port(ds, port);
+	if (!dp)
+		return -EOPNOTSUPP;
+
+	dev = dsa_port_to_bridge_port(dp);
+	if (!dev)
+		return -EOPNOTSUPP;
+
+	if ((dev != mrp->p_port) && (dev != mrp->s_port))
+		return 0;
+
+	p->mrp_ring_id = mrp->ring_id;
+
+	return 0;
+}
+
+static int mv88e6xxx_port_mrp_del(struct dsa_switch *ds, int port,
+				  const struct switchdev_obj_mrp *mrp)
+{
+	struct mv88e6xxx_chip *chip = ds->priv;
+	struct mv88e6xxx_port *p;
+
+	p = &chip->ports[port];
+
+	if (p->mrp_ring_id != mrp->ring_id)
+		return 0;
+
+	p->mrp_ring_id = 0;
+
+	return 0;
+}
+
+static u16 mv88e6xxx_mrp_get_vid(const struct switchdev_obj_ring_role_mrp *mrp,
+				 struct mv88e6xxx_port *p)
+{
+	if (mrp->vid)
+		return mrp->vid;
+
+	/* Default to port vid if no vid is configured */
+	return p->bridge_pvid.vid;
+}
+
+static int mv88e6xxx_mrp_do_dmac(bool do_add, struct dsa_switch *ds, int port,
+				 u16 vid, const u8 *dmac)
+{
+	struct mv88e6xxx_chip *chip = ds->priv;
+	u8 state = 0;
+	int err;
+
+	if (do_add)
+		state = MV88E6XXX_G1_ATU_DATA_STATE_MC_STATIC_DA_MGMT;
+
+	mv88e6xxx_reg_lock(chip);
+	err = mv88e6xxx_port_db_load_purge(chip, port, dmac, vid, state);
+	mv88e6xxx_reg_unlock(chip);
+
+	return err;
+}
+
+static int mv88e6xxx_mrp_do_test_dmac(bool do_add, struct dsa_switch *ds,
+				      int port, u16 vid)
+{
+	const u8 dmac[] = { 0x01, 0x15, 0x4e, 0x00, 0x00, 0x01 };
+
+	return mv88e6xxx_mrp_do_dmac(do_add, ds, port, vid, dmac);
+}
+
+static int mv88e6xxx_mrp_do_control_dmac(bool do_add, struct dsa_switch *ds,
+					 int port, u16 vid)
+{
+	const u8 dmac[] = { 0x01, 0x15, 0x4e, 0x00, 0x00, 0x02 };
+
+	return mv88e6xxx_mrp_do_dmac(do_add, ds, port, vid, dmac);
+}
+
+static bool mv88e6xxx_mrp_are_ports_same_chip(struct mv88e6xxx_chip *chip,
+					      u16 ring_id)
+{
+	bool p_found = false;
+	int i;
+
+	/* Exactly two ports should share the same ring_id */
+	for (i = 0; i < mv88e6xxx_num_ports(chip); i++) {
+		struct mv88e6xxx_port *p = &chip->ports[i];
+		if (p->mrp_ring_id != ring_id)
+			continue;
+
+		if (p_found)
+			return true;
+		p_found = true;
+	}
+
+	return false;
+}
+
+static int
+mv88e6xxx_port_mrp_add_ring_role(struct dsa_switch *ds, int port,
+				 const struct switchdev_obj_ring_role_mrp *mrp)
+{
+	struct mv88e6xxx_chip *chip = ds->priv;
+	struct mv88e6xxx_port *p;
+	int upstream_port, err;
+	bool samechip;
+	u16 vid;
+
+	p = &chip->ports[port];
+
+	if (p->mrp_ring_id != mrp->ring_id)
+		return 0;
+
+	vid = mv88e6xxx_mrp_get_vid(mrp, p);
+	upstream_port = dsa_upstream_port(ds, port);
+	samechip = mv88e6xxx_mrp_are_ports_same_chip(chip, p->mrp_ring_id);
+
+	switch(mrp->ring_role) {
+	case BR_MRP_RING_ROLE_MRC:
+		/* If the ring ports are located on the same chip, we also add
+		 * the actual ring ports as part of the ATU entry. Further, we
+		 * set an indicator to the tag engine to know that the frame
+		 * have been forwarded in the HW, so that it is not forwarded
+		 * from the SW later. */
+		if (samechip && !mrp->sw_backup) {
+			err = mv88e6xxx_mrp_do_test_dmac(true, ds, port, vid);
+			if (err)
+				return err;
+
+			err = mv88e6xxx_mrp_do_control_dmac(true, ds, port,
+							    vid);
+			if (err)
+				return err;
+		}
+
+		err = mv88e6xxx_mrp_do_test_dmac(true, ds, upstream_port, vid);
+		if (err)
+			return err;
+
+		err = mv88e6xxx_mrp_do_control_dmac(true, ds, upstream_port,
+						    vid);
+		if (err)
+			return err;
+
+		break;
+	case BR_MRP_RING_ROLE_MRA:
+		/* Fall-through */
+	case BR_MRP_RING_ROLE_MRM:
+		/* We cannot fully offload MRP in the manner the the MRP
+		 * expects, we cannot generate or handle frames in HW. We only
+		 * continue with the setup of the MRM if sw_backup is set to
+		 * true. */
+		if (!mrp->sw_backup)
+			return -EAGAIN;
+
+		err = mv88e6xxx_mrp_do_test_dmac(true, ds, upstream_port, vid);
+		if (err)
+			return err;
+
+		err = mv88e6xxx_mrp_do_control_dmac(true, ds, upstream_port, vid);
+		if (err)
+			return err;
+		break;
+	default:
+		return 0;
+	}
+
+	return 0;
+}
+
+static int
+mv88e6xxx_port_mrp_del_ring_role(struct dsa_switch *ds, int port,
+				 const struct switchdev_obj_ring_role_mrp *mrp)
+{
+	struct mv88e6xxx_chip *chip = ds->priv;
+	struct mv88e6xxx_port *p;
+	int upstream_port, err;
+	u16 vid;
+
+	p = &chip->ports[port];
+
+	if (p->mrp_ring_id != mrp->ring_id)
+		return 0;
+
+	vid = mv88e6xxx_mrp_get_vid(mrp, p);
+	upstream_port = dsa_upstream_port(ds, port);
+
+	err = mv88e6xxx_mrp_do_test_dmac(false, ds, port, vid);
+	if (err)
+		return err;
+	err = mv88e6xxx_mrp_do_control_dmac(false, ds, port, vid);
+	if (err)
+		return err;
+	err = mv88e6xxx_mrp_do_test_dmac(false, ds, upstream_port, vid);
+	if (err)
+		return err;
+	err = mv88e6xxx_mrp_do_control_dmac(false, ds, upstream_port, vid);
+	if (err)
+		return err;
+
+	return 0;
+}
+
 static const struct dsa_switch_ops mv88e6xxx_switch_ops = {
 	.get_tag_protocol	= mv88e6xxx_get_tag_protocol,
 	.change_tag_protocol	= mv88e6xxx_change_tag_protocol,
@@ -8307,6 +8518,10 @@ static const struct dsa_switch_ops mv88e6xxx_switch_ops = {
 	.port_policer_del	= mv88e6xxx_matchall_policer_del,
 	.port_setup_tc		= mv88e6xxx_port_setup_tc,
 	.inband_receive         = mv88e6xxx_inband_rcv,
+	.port_mrp_add           = mv88e6xxx_port_mrp_add,
+	.port_mrp_del           = mv88e6xxx_port_mrp_del,
+	.port_mrp_add_ring_role = mv88e6xxx_port_mrp_add_ring_role,
+	.port_mrp_del_ring_role = mv88e6xxx_port_mrp_del_ring_role,
 };
 
 static int mv88e6xxx_register_switch(struct mv88e6xxx_chip *chip)

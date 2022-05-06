@@ -311,6 +311,7 @@ struct mv88e6xxx_port {
 	unsigned int serdes_irq;
 	char serdes_irq_name[64];
 	struct devlink_region *region;
+	u16 mrp_ring_id;
 };
 
 enum mv88e6xxx_region_id {
