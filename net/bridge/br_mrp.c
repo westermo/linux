@@ -2,6 +2,7 @@
 
 #include <linux/mrp_bridge.h>
 #include "br_private_mrp.h"
+#include "br_private_stp.h"
 
 static const u8 mrp_test_dmac[ETH_ALEN] = { 0x1, 0x15, 0x4e, 0x0, 0x0, 0x1 };
 static const u8 mrp_in_test_dmac[ETH_ALEN] = { 0x1, 0x15, 0x4e, 0x0, 0x0, 0x3 };
@@ -648,6 +649,12 @@ int br_mrp_set_port_state(struct net_bridge_port *p,
 	spin_unlock_bh(&p->br->lock);
 
 	br_mrp_port_switchdev_set_state(p, port_state);
+
+	/* Workaround for a "larger" issue? Since MRP should not clash with STP
+	 * it will not change state correctly on link changes that normally is
+	 * handled in the stp code. So when MRP changes that state of a port
+	 * here we notify the. */
+	br_port_state_selection(p->br);
 
 	return 0;
 }
