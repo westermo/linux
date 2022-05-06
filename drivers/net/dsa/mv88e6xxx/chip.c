@@ -8345,6 +8345,7 @@ static int
 mv88e6xxx_port_mrp_add_ring_role(struct dsa_switch *ds, int port,
 				 const struct switchdev_obj_ring_role_mrp *mrp)
 {
+	struct mv88e6xxx_tagger_data *tagger_data;
 	struct mv88e6xxx_chip *chip = ds->priv;
 	struct mv88e6xxx_port *p;
 	int upstream_port, err;
@@ -8376,6 +8377,10 @@ mv88e6xxx_port_mrp_add_ring_role(struct dsa_switch *ds, int port,
 							    vid);
 			if (err)
 				return err;
+
+			tagger_data = mv88e6xxx_tagger_data(ds);
+			tagger_data->set_port_mrp_tx_fwd_offload(ds, port,
+								 true);
 		}
 
 		err = mv88e6xxx_mrp_do_test_dmac(true, ds, upstream_port, vid);
@@ -8417,6 +8422,7 @@ static int
 mv88e6xxx_port_mrp_del_ring_role(struct dsa_switch *ds, int port,
 				 const struct switchdev_obj_ring_role_mrp *mrp)
 {
+	struct mv88e6xxx_tagger_data *tagger_data;
 	struct mv88e6xxx_chip *chip = ds->priv;
 	struct mv88e6xxx_port *p;
 	int upstream_port, err;
@@ -8442,6 +8448,9 @@ mv88e6xxx_port_mrp_del_ring_role(struct dsa_switch *ds, int port,
 	err = mv88e6xxx_mrp_do_control_dmac(false, ds, upstream_port, vid);
 	if (err)
 		return err;
+
+	tagger_data = mv88e6xxx_tagger_data(ds);
+	tagger_data->set_port_mrp_tx_fwd_offload(ds, port, false);
 
 	return 0;
 }
