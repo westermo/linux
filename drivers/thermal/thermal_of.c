@@ -360,6 +360,16 @@ static int of_thermal_get_crit_temp(struct thermal_zone_device *tz,
 	return -EINVAL;
 }
 
+static void of_thermal_notify_hot (struct thermal_zone_device *tz)
+{
+	pr_warn("Temperature reached hot level %d\n", tz->temperature / 1000);
+}
+
+static void of_thermal_notify_critical (struct thermal_zone_device *tz)
+{
+	pr_crit("Temperature reached critical level %d\n", tz->temperature / 1000);
+}
+
 static struct thermal_zone_device_ops of_thermal_ops = {
 	.get_trip_type = of_thermal_get_trip_type,
 	.get_trip_temp = of_thermal_get_trip_temp,
@@ -370,6 +380,9 @@ static struct thermal_zone_device_ops of_thermal_ops = {
 
 	.bind = of_thermal_bind,
 	.unbind = of_thermal_unbind,
+
+	.hot = of_thermal_notify_hot,
+	.critical = of_thermal_notify_critical,
 };
 
 /***   sensor API   ***/
