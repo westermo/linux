@@ -2661,8 +2661,7 @@ static int lan8804_config_init(struct phy_device *phydev)
 
 static irqreturn_t lan8814_handle_interrupt(struct phy_device *phydev)
 {
-	u16 tsu_irq_status;
-	int irq_status;
+	int irq_status, tsu_irq_status;
 
 	irq_status = phy_read(phydev, LAN8814_INTS);
 	if (irq_status > 0 && (irq_status & LAN8814_INT_LINK))
