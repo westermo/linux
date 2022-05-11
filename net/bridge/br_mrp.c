@@ -738,6 +738,16 @@ int br_mrp_set_ring_role(struct net_bridge *br,
 	if (support == BR_MRP_NONE)
 		return -EOPNOTSUPP;
 
+	/* If any of the two ring ports is not offloadable, e.g. one port is a
+	 * SSL port, we also need to indicate BR_MRP_SW. However we still want
+	 * to set ring role switchdev call above to try and ensure that any
+	 * offloading that can be done for a port that supports it is done.
+	 * Therefore, we check this after and in that case indicate BR_MRP_SW,
+	 * even though we have partailly offloaded. */
+	if (!br_switchdev_port_uses_offload(mrp->p_port) ||
+	    !br_switchdev_port_uses_offload(mrp->s_port))
+		support = BR_MRP_SW;
+
 	/* Now detect if the HW actually applied the role or not. If the HW
 	 * applied the role it means that the SW will not to do those operations
 	 * anymore. For example if the role ir MRM then the HW will notify the
