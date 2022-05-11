@@ -813,3 +813,11 @@ void br_switchdev_port_unoffload(struct net_bridge_port *p, const void *ctx,
 
 	nbp_switchdev_del(p);
 }
+
+bool br_switchdev_port_uses_offload(struct net_bridge_port *p)
+{
+	if (!p->offload_count)
+		return false;
+
+	return true;
+}
