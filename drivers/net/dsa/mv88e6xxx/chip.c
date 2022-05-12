@@ -7522,6 +7522,36 @@ struct mv88e6xxx_rule *mv88e6xxx_rule_find(struct mv88e6xxx_chip *chip,
 	return NULL;
 }
 
+static int mv88e6xxx_matchall_policer_add(struct dsa_switch *ds, int port,
+					  struct dsa_mall_policer_tc_entry *policer)
+{
+	struct mv88e6xxx_chip *chip = ds->priv;
+	int err;
+
+	if (!chip->info->ops->irl_set)
+		return -EOPNOTSUPP;
+
+	mv88e6xxx_reg_lock(chip);
+	err = chip->info->ops->irl_set(chip, port, MV88E6XXX_KEY_ALL_MAC,
+				       policer->rate_bytes_per_sec,
+				       policer->burst);
+	mv88e6xxx_reg_unlock(chip);
+
+	return err;
+}
+
+static void mv88e6xxx_matchall_policer_del(struct dsa_switch *ds, int port)
+{
+	struct mv88e6xxx_chip *chip = ds->priv;
+
+	if (!chip->info->ops->irl_set)
+		return;
+
+	mv88e6xxx_reg_lock(chip);
+	chip->info->ops->irl_set(chip, port, MV88E6XXX_KEY_ALL_MAC, 0, 0);
+	mv88e6xxx_reg_unlock(chip);
+}
+
 static int mv88e6xxx_setup_port_policer(struct dsa_switch *ds,
 					int port,
 					struct netlink_ext_ack *extack,
@@ -7856,6 +7886,8 @@ static const struct dsa_switch_ops mv88e6xxx_switch_ops = {
 	.crosschip_lag_leave	= mv88e6xxx_crosschip_lag_leave,
 	.cls_flower_add         = mv88e6xxx_cls_flower_add,
 	.cls_flower_del         = mv88e6xxx_cls_flower_del,
+	.port_policer_add	= mv88e6xxx_matchall_policer_add,
+	.port_policer_del	= mv88e6xxx_matchall_policer_del,
 };
 
 static int mv88e6xxx_register_switch(struct mv88e6xxx_chip *chip)
