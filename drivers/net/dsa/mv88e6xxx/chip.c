@@ -32,6 +32,7 @@
 #include <linux/phylink.h>
 #include <linux/leds.h>
 #include <net/dsa.h>
+#include <net/pkt_cls.h>
 
 #include "chip.h"
 #include "devlink.h"
@@ -3615,12 +3616,15 @@ static int mv88e6xxx_setup_port(struct mv88e6xxx_chip *chip, int port)
 	struct device_node *phy_handle = NULL;
 	struct dsa_switch *ds = chip->ds;
 	struct dsa_port *dp;
+	u64 max_rate[16];
 	int tx_amp;
 	int err;
 	u16 reg;
 
 	chip->ports[port].chip = chip;
 	chip->ports[port].port = port;
+
+	memset(max_rate, 0, sizeof(max_rate));
 
 	/* MAC Forcing register: don't force link, speed, duplex or flow control
 	 * state to any particular values on physical ports, but force the CPU
@@ -3799,7 +3803,7 @@ static int mv88e6xxx_setup_port(struct mv88e6xxx_chip *chip, int port)
 	}
 
 	if (chip->info->ops->port_egress_rate_limiting) {
-		err = chip->info->ops->port_egress_rate_limiting(chip, port);
+		err = chip->info->ops->port_egress_rate_limiting(chip, port, max_rate);
 		if (err)
 			return err;
 	}
@@ -4646,7 +4650,7 @@ static const struct mv88e6xxx_ops mv88e6097_ops = {
 	.port_set_ucast_flood = mv88e6352_port_set_ucast_flood,
 	.port_set_mcast_flood = mv88e6352_port_set_mcast_flood,
 	.port_set_ether_type = mv88e6351_port_set_ether_type,
-	.port_egress_rate_limiting = mv88e6095_port_egress_rate_limiting,
+	.port_egress_rate_limiting = mv88e6390_port_egress_rate_limiting,
 	.port_pause_limit = mv88e6097_port_pause_limit,
 	.port_disable_learn_limit = mv88e6xxx_port_disable_learn_limit,
 	.port_disable_pri_override = mv88e6xxx_port_disable_pri_override,
@@ -5724,7 +5728,7 @@ static const struct mv88e6xxx_ops mv88e6351_ops = {
 	.port_set_mcast_flood = mv88e6352_port_set_mcast_flood,
 	.port_set_ether_type = mv88e6351_port_set_ether_type,
 	.port_set_jumbo_size = mv88e6165_port_set_jumbo_size,
-	.port_egress_rate_limiting = mv88e6097_port_egress_rate_limiting,
+	.port_egress_rate_limiting = mv88e6390_port_egress_rate_limiting,
 	.port_pause_limit = mv88e6097_port_pause_limit,
 	.port_disable_learn_limit = mv88e6xxx_port_disable_learn_limit,
 	.port_disable_pri_override = mv88e6xxx_port_disable_pri_override,
@@ -5843,7 +5847,7 @@ static const struct mv88e6xxx_ops mv88e6390_ops = {
 	.port_set_mcast_flood = mv88e6352_port_set_mcast_flood,
 	.port_set_ether_type = mv88e6351_port_set_ether_type,
 	.port_set_jumbo_size = mv88e6165_port_set_jumbo_size,
-	.port_egress_rate_limiting = mv88e6097_port_egress_rate_limiting,
+	.port_egress_rate_limiting = mv88e6390_port_egress_rate_limiting,
 	.port_pause_limit = mv88e6390_port_pause_limit,
 	.port_disable_learn_limit = mv88e6xxx_port_disable_learn_limit,
 	.port_disable_pri_override = mv88e6xxx_port_disable_pri_override,
@@ -5912,7 +5916,7 @@ static const struct mv88e6xxx_ops mv88e6390x_ops = {
 	.port_set_mcast_flood = mv88e6352_port_set_mcast_flood,
 	.port_set_ether_type = mv88e6351_port_set_ether_type,
 	.port_set_jumbo_size = mv88e6165_port_set_jumbo_size,
-	.port_egress_rate_limiting = mv88e6097_port_egress_rate_limiting,
+	.port_egress_rate_limiting = mv88e6390_port_egress_rate_limiting,
 	.port_pause_limit = mv88e6390_port_pause_limit,
 	.port_disable_learn_limit = mv88e6xxx_port_disable_learn_limit,
 	.port_disable_pri_override = mv88e6xxx_port_disable_pri_override,
@@ -7819,6 +7823,44 @@ int mv88e6xxx_cls_flower_del(struct dsa_switch *ds, int port,
 
 	return err;
 }
+
+int mv88e6xxx_setup_tc_mqprio(struct dsa_switch *ds, int port,
+			      struct tc_mqprio_qopt_offload *mqprio)
+{
+	struct mv88e6xxx_chip *chip = ds->priv;
+	u64 max_rate[16];
+	int err;
+
+	if (!chip->info->ops->port_egress_rate_limiting)
+		return -EOPNOTSUPP;
+
+	memset(max_rate, 0, sizeof(max_rate));
+
+	if ((mqprio->mode == TC_MQPRIO_MODE_CHANNEL) &&
+	    (mqprio->shaper == TC_MQPRIO_SHAPER_BW_RATE) &&
+	    (mqprio->flags & TC_MQPRIO_F_MAX_RATE)) {
+		memcpy(max_rate, mqprio->max_rate, sizeof(max_rate));
+	}
+
+	mv88e6xxx_reg_lock(chip);
+	err = chip->info->ops->port_egress_rate_limiting(chip, port, max_rate);
+	mv88e6xxx_reg_unlock(chip);
+
+	return err;
+}
+
+static int mv88e6xxx_port_setup_tc(struct dsa_switch *ds, int port,
+				   enum tc_setup_type type,
+				   void *type_data)
+{
+	switch (type) {
+	case TC_SETUP_QDISC_MQPRIO:
+		return mv88e6xxx_setup_tc_mqprio(ds, port, type_data);
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
 static const struct dsa_switch_ops mv88e6xxx_switch_ops = {
 	.get_tag_protocol	= mv88e6xxx_get_tag_protocol,
 	.change_tag_protocol	= mv88e6xxx_change_tag_protocol,
@@ -7888,6 +7930,7 @@ static const struct dsa_switch_ops mv88e6xxx_switch_ops = {
 	.cls_flower_del         = mv88e6xxx_cls_flower_del,
 	.port_policer_add	= mv88e6xxx_matchall_policer_add,
 	.port_policer_del	= mv88e6xxx_matchall_policer_del,
+	.port_setup_tc		= mv88e6xxx_port_setup_tc,
 };
 
 static int mv88e6xxx_register_switch(struct mv88e6xxx_chip *chip)
