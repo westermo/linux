@@ -1367,13 +1367,15 @@ int mv88e6165_port_set_jumbo_size(struct mv88e6xxx_chip *chip, int port,
 
 /* Offset 0x09: Port Rate Control */
 
-int mv88e6095_port_egress_rate_limiting(struct mv88e6xxx_chip *chip, int port)
+int mv88e6095_port_egress_rate_limiting(struct mv88e6xxx_chip *chip, int port,
+					u64 max_rate[16])
 {
 	return mv88e6xxx_port_write(chip, port, MV88E6XXX_PORT_EGRESS_RATE_CTL1,
 				    0x0000);
 }
 
-int mv88e6097_port_egress_rate_limiting(struct mv88e6xxx_chip *chip, int port)
+int mv88e6097_port_egress_rate_limiting(struct mv88e6xxx_chip *chip, int port,
+					u64 max_rate[16])
 {
 	return mv88e6xxx_port_write(chip, port, MV88E6XXX_PORT_EGRESS_RATE_CTL1,
 				    0x0001);
@@ -1801,3 +1803,65 @@ int mv88e6xxx_port_set_prio(struct mv88e6xxx_chip *chip, int port, u16 defpri)
 	return mv88e6xxx_port_write(chip, port, MV88E6XXX_PORT_CTL2, reg);
 }
 
+static int mv88e6390_port_set_egress_rate(struct mv88e6xxx_chip *chip,
+					  int port, u64 rate, u64 step)
+{
+	u16 reg;
+	u8 egress_dec = 0x7f;
+	u16 cm = 2 << 14;
+	int err;
+
+	if (step == 0) {
+		err = mv88e6xxx_port_write(chip, port,
+					   MV88E6XXX_PORT_EGRESS_RATE_CTL1, 0x0001);
+		err += mv88e6xxx_port_write(chip, port,
+					    MV88E6XXX_PORT_EGRESS_RATE_CTL2, cm);
+		return err;
+	}
+
+	err = mv88e6xxx_port_read(chip, port, MV88E6XXX_PORT_EGRESS_RATE_CTL1, &reg);
+	if (err)
+		return err;
+
+	reg &= ~egress_dec;
+	reg |= div_u64(rate, step);
+	err = mv88e6xxx_port_write(chip, port, MV88E6XXX_PORT_EGRESS_RATE_CTL1, reg);
+	if (err)
+		return err;
+
+	err = mv88e6xxx_port_read(chip, port, MV88E6XXX_PORT_EGRESS_RATE_CTL2, &reg);
+	if (err)
+		return err;
+
+	switch (step) {
+	case 64:
+		reg |= 0x1E84;
+		break;
+	case 1000:
+		reg |= 0x01F4;
+		break;
+	case 10000:
+		reg |= 0x0032;
+		break;
+	}
+
+	return mv88e6xxx_port_write(chip, port, MV88E6XXX_PORT_EGRESS_RATE_CTL2, reg);
+}
+
+int mv88e6390_port_egress_rate_limiting(struct mv88e6xxx_chip *chip, int port,
+					u64 max_rate[16])
+{
+	u64 rate = max_rate[0];
+	u64 step;
+
+	if (rate == 0)
+		step = 0;
+	else if (rate < 1000)
+		step = 64;
+	else if (rate < 100000)
+		step = 1000;
+	else
+		step = 10000;
+
+	return mv88e6390_port_set_egress_rate(chip, port, rate, step);
+}
