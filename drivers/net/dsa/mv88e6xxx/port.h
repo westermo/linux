@@ -194,6 +194,7 @@
 /* Offset 0x07: Default Port VLAN ID & Priority */
 #define MV88E6XXX_PORT_DEFAULT_VLAN		0x07
 #define MV88E6XXX_PORT_DEFAULT_VLAN_MASK	0x0fff
+#define MV88E6XXX_PORT_DEFAULT_FRAME_PRIO	0xe000
 
 /* Offset 0x08: Port Control 2 Register */
 #define MV88E6XXX_PORT_CTL2				0x08
@@ -217,6 +218,7 @@
 #define MV88E6XXX_PORT_CTL2_EGRESS_MONITOR		0x0020
 #define MV88E6XXX_PORT_CTL2_INGRESS_MONITOR		0x0010
 #define MV88E6095_PORT_CTL2_CPU_PORT_MASK		0x000f
+#define MV88E6XXX_PORT_CTL2_DEFAULT_QUEUE_PRI0		0x0007
 
 /* Offset 0x09: Egress Rate Control */
 #define MV88E6XXX_PORT_EGRESS_RATE_CTL1		0x09
@@ -462,5 +464,9 @@ int mv88e6xxx_port_hidden_write(struct mv88e6xxx_chip *chip, int block,
 int mv88e6xxx_port_hidden_wait(struct mv88e6xxx_chip *chip);
 int mv88e6xxx_port_hidden_read(struct mv88e6xxx_chip *chip, int block, int port,
 			       int reg, u16 *val);
+
+int mv88e6xxx_port_set_prio_mode(struct mv88e6xxx_chip *chip, int port,
+				 u16 initial, bool ena);
+int mv88e6xxx_port_set_prio(struct mv88e6xxx_chip *chip, int port, u16 defpri);
 
 #endif /* _MV88E6XXX_PORT_H */

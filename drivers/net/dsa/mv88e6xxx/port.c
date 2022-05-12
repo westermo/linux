@@ -1756,3 +1756,48 @@ int mv88e6393x_port_set_policy(struct mv88e6xxx_chip *chip, int port,
 
 	return mv88e6393x_port_policy_write(chip, port, ptr, reg);
 }
+
+int mv88e6xxx_port_set_prio_mode(struct mv88e6xxx_chip *chip, int port,
+				 u16 initial, bool ena)
+{
+	u16 reg;
+	int err;
+
+	err = mv88e6xxx_port_read(chip, port, MV88E6XXX_PORT_CTL0, &reg);
+	if (err)
+		return err;
+
+	if (ena)
+		reg |= initial;
+	else
+		reg &= ~(MV88E6185_PORT_CTL0_USE_IP | MV88E6185_PORT_CTL0_USE_TAG);
+
+	return mv88e6xxx_port_write(chip, port, MV88E6XXX_PORT_CTL0, reg);
+}
+
+int mv88e6xxx_port_set_prio(struct mv88e6xxx_chip *chip, int port, u16 defpri)
+{
+	u16 reg;
+	int err = 0;
+
+	err = mv88e6xxx_port_read(chip, port, MV88E6XXX_PORT_DEFAULT_VLAN, &reg);
+	if (err)
+		return err;
+
+	reg &= ~MV88E6XXX_PORT_DEFAULT_FRAME_PRIO;
+	reg |= (defpri << 13);
+
+	err = mv88e6xxx_port_write(chip, port, MV88E6XXX_PORT_DEFAULT_VLAN, reg);
+	if (err)
+		return err;
+
+	err = mv88e6xxx_port_read(chip, port, MV88E6XXX_PORT_CTL2, &reg);
+	if (err)
+		return err;
+
+	reg &= ~MV88E6XXX_PORT_CTL2_DEFAULT_QUEUE_PRI0;
+	reg |= defpri;
+
+	return mv88e6xxx_port_write(chip, port, MV88E6XXX_PORT_CTL2, reg);
+}
+
