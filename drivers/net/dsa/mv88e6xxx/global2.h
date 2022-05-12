@@ -306,6 +306,50 @@
 #define MV88E6352_G2_SCRATCH_GPIO_PCTL_TRIG	1
 #define MV88E6352_G2_SCRATCH_GPIO_PCTL_EVREQ	2
 
+struct mv88e6390_pirl_reg {
+	u16	bkt_type_mask;
+	u8	tcam_flows;
+	u8	pri_and_pt;
+	u8	use_fpri;
+	u8	pri_select;
+	u8	color_aware;
+	u8	account_grn_of;
+	u8	account_qcong;
+	u8	account_flt;
+	u8	sampling_mode;
+	u8	mgmt_nrl;
+	u8	fc_action;
+	u8	fc_mode;
+	u8	fc_priority;
+	u32	cbs_limit;
+	u32	ebs_limit;
+	u16	bkt_increment;
+	u16	brf_green;
+	u16	brf_yellow;
+	u16	count_mode;
+};
+
+struct mv88e6097_pirl_reg {
+	u8	bkt_rate_type;	/* reseved in 6352 chip */
+	u16	bkt_type_mask;
+	u16	bkt_increment;
+	u16	brf;
+	u32	cbs_limit;
+	u32	ebs_limit;
+	u16	count_mode;
+	u8      flow_ctrl;
+	u8      action_mode;
+	u8      ebs_limit_action;
+	u8	sampling_mode;
+	u8	account_cong;	/* 'accaunt_for_all' in 6352 chip */
+	u8	account_flt;
+	u8	prio_or_type;
+	u8	prio_mask;
+	u8	mgmt_nrl;
+	u8	sa_nrl;
+	u8	da_nrl;
+};
+
 int mv88e6xxx_g2_read(struct mv88e6xxx_chip *chip, int reg, u16 *val);
 int mv88e6xxx_g2_write(struct mv88e6xxx_chip *chip, int reg, u16 val);
 int mv88e6xxx_g2_wait_bit(struct mv88e6xxx_chip *chip, int reg,
@@ -375,5 +419,10 @@ int mv88e6xxx_g2_scratch_gpio_set_smi(struct mv88e6xxx_chip *chip,
 int mv88e6352_g2_scratch_port_has_serdes(struct mv88e6xxx_chip *chip, int port);
 int mv88e6xxx_g2_atu_stats_set(struct mv88e6xxx_chip *chip, u16 kind, u16 bin);
 int mv88e6xxx_g2_atu_stats_get(struct mv88e6xxx_chip *chip, u16 *stats);
+
+int mv88e6390_g2_pirl_set(struct mv88e6xxx_chip *chip, int port,
+			  enum mv88e6xxx_key_type type, s64 rate, s64 burst);
+int mv88e6097_g2_pirl_set(struct mv88e6xxx_chip *chip, int port,
+			  enum mv88e6xxx_key_type type, s64 rate, s64 burst);
 
 #endif /* _MV88E6XXX_GLOBAL2_H */

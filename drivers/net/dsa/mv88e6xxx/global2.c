@@ -1192,3 +1192,266 @@ void mv88e6xxx_g2_irq_mdio_free(struct mv88e6xxx_chip *chip,
 	for (phy = 0; phy < chip->info->num_internal_phys; phy++)
 		irq_dispose_mapping(bus->irq[phy]);
 }
+
+static int mv88e6390_pirl_calc(struct mv88e6390_pirl_reg *pirl,
+			       s64 tgt_rate, s64 tgt_bst_size)
+{
+	u32 rate_bps = (u32)tgt_rate * 8; /* convert bytes to bits */
+
+	if (!pirl)
+		return -EINVAL;
+
+	pirl->count_mode = 2;
+	pirl->mgmt_nrl = 1;
+
+	pirl->cbs_limit = 0xfffff0;
+	pirl->ebs_limit = 0xfffff0;
+
+	if (tgt_rate <= 12500000) {
+		/* for rates up to 100Mbit/s */
+		pirl->bkt_increment = 500000000/rate_bps;
+		pirl->brf_green = 1;
+	} else if (tgt_rate <= 62500000) {
+		/* for rates up to 500Mbit/s */
+		pirl->bkt_increment = 500000000/(rate_bps / 10);
+		pirl->brf_green = 10;
+	} else  {
+		/* for rates up to 1Gbit/s */
+		pirl->bkt_increment = 500000000/(rate_bps / 100);
+		pirl->brf_green = 100;
+	}
+
+	return 0;
+}
+
+static int mv88e6352_pirl_calc(struct mv88e6097_pirl_reg *pirl,
+			       s64 tgt_rate, s64 tgt_bst_size)
+{
+	u32 rate_kbps = ((u32)tgt_rate * 8) / 1000; /* convert bytes to bits */
+
+	if (!pirl)
+		return -EINVAL;
+
+	pirl->count_mode = 2;
+	pirl->prio_or_type = 1;
+	pirl->mgmt_nrl = 1;
+	pirl->sa_nrl = 1;
+	pirl->account_flt = 1;
+
+	pirl->ebs_limit = 0xffffff;
+	pirl->cbs_limit = 0x200000;
+
+	if (tgt_rate <= 125000) {
+		/* for rates up to 1Mbit/s */
+		pirl->bkt_increment = 0x5f1;
+		pirl->brf = rate_kbps / 64;
+	} else if (tgt_rate <= 1250000) {
+		/* for rates up to 10Mbit/s */
+		pirl->bkt_increment = 0x30c;
+		pirl->brf = rate_kbps / 128 + ((rate_kbps % 128) ? 1 : 0);
+	} else {
+		/* for rates up to 1Gbit/s */
+		pirl->bkt_increment = 0x64;
+		pirl->brf = rate_kbps / 1000;
+	}
+
+	return 0;
+}
+
+static int mv88e6097_pirl_calc(struct mv88e6097_pirl_reg *pirl,
+			      	s64 tgt_rate, s64 tgt_bst_size)
+{
+	u32 rate_kbps = ((u32)tgt_rate * 8) / 1000; /* convert bytes to bits */
+
+	if (!pirl)
+		return -EINVAL;
+
+	pirl->count_mode = 2;
+	pirl->prio_or_type = 1;
+	pirl->mgmt_nrl = 1;
+	pirl->sa_nrl = 1;
+	pirl->account_flt = 1;
+
+	pirl->ebs_limit = 0xffffff;
+	pirl->cbs_limit = 0x200000;
+
+	if (tgt_rate < 125000) {
+		/* for rates up to 1Mbit/s */
+		pirl->bkt_increment = 0x3ca;
+		pirl->brf = rate_kbps / 64;
+	} else if (tgt_rate < 1250000) {
+		/* for rates up to 10Mbit/s */
+		pirl->bkt_increment = 0x1ef;
+		pirl->brf = rate_kbps / 128 + ((rate_kbps % 128) ? 1 : 0);
+	} else  {
+		/* for rates up to 100Mbit/s */
+		pirl->bkt_increment = 0x3e;
+		pirl->brf = rate_kbps / 1000;
+	}
+
+	return 0;
+}
+
+static int mv88e6390_g2_pirl_write(struct mv88e6xxx_chip *chip, int port, int res,
+				   struct mv88e6390_pirl_reg *pirl)
+{
+	u16 data[9];
+	int i, err;
+
+	data[0] = pirl->bkt_type_mask;
+
+	data[1] = (((pirl->sampling_mode ? 1 : 0) << 14) |
+		   ((pirl->color_aware ? 1 : 0) << 13) |
+		   ((pirl->account_grn_of ? 1 : 0) << 12) |
+		   ((pirl->account_qcong ? 1 : 0) << 11) |
+		   ((pirl->account_flt ? 1 : 0) << 10) |
+		   ((pirl->pri_and_pt ? 1 : 0) << 9) |
+		   ((pirl->use_fpri ? 1 : 0) << 8) |
+		   ((pirl->pri_select & 0xff)));
+
+	data[2] = (((pirl->count_mode) << 14) |
+		   ((pirl->tcam_flows ? 1 : 0) << 13) |
+		   ((pirl->bkt_increment) & 0x1fff));
+
+	data[3] = (pirl->brf_green & 0xffff);
+
+	data[4] = (pirl->cbs_limit & 0xffff);
+
+	data[5] = ((pirl->cbs_limit >> 16) & 0xff);
+
+	data[6] = (pirl->brf_yellow & 0xffff);
+
+	data[7] = (pirl->ebs_limit & 0xffff);
+
+	data[8] = (((pirl->fc_priority & 0x7) << 13) |
+		   ((pirl->fc_mode ? 1 : 0) << 12) |
+		   ((pirl->fc_action ? 1 : 0) << 11) |
+		   ((pirl->mgmt_nrl ? 1 : 0) << 10) |
+		   ((pirl->ebs_limit >> 16) & 0xff));
+
+	for (i = 0; i < 9; i++) {
+		err = mv88e6xxx_g2_write(chip, MV88E6XXX_G2_IRL_DATA, data[i]);
+		if (err)
+			return err;
+
+		err = mv88e6xxx_g2_irl_op(chip, MV88E6390_G2_IRL_CMD_OP_WRITE_REG,
+					  port, res, i);
+	        if (err)
+			return err;
+	}
+
+	return 0;
+}
+
+static int mv88e6097_g2_pirl_write(struct mv88e6xxx_chip *chip, int port, int res,
+				   struct mv88e6097_pirl_reg *pirl)
+{
+	u16 data[8];
+	int i, err;
+
+	data[0] = (((pirl->bkt_rate_type ? 1 : 0) << 15) |
+		   (pirl->bkt_type_mask & 0x7fff));
+	data[1] =  (pirl->bkt_increment & 0xfff);
+	data[2] = (pirl->brf & 0xffff);
+	data[3] = (((pirl->cbs_limit & 0xfff) << 4) | (pirl->count_mode << 2));
+	data[4] = ((pirl->cbs_limit >> 12) & 0xfff);
+	data[5] = (pirl->ebs_limit & 0xffff);
+	data[6] = (((pirl->flow_ctrl ? 1 : 0 ) << 14) |
+		   ((pirl->action_mode ? 1 : 0) << 13) |
+		   ((pirl->ebs_limit_action ? 1 : 0) << 12) |
+		   ((pirl->sampling_mode ? 1 : 0) << 11) |
+		   ((pirl->ebs_limit >> 16) & 0xff));
+	data[7] = (((pirl->account_cong ? 1 : 0) << 15) |
+		   ((pirl->account_flt ? 1 : 0) << 14) |
+		   ((pirl->prio_or_type ? 1 : 0) << 12) |
+		   ((pirl->prio_mask & 0xf) << 8) |
+		   ((pirl->mgmt_nrl ? 1 : 0) << 2) |
+		   ((pirl->sa_nrl ? 1 : 0) << 1) | pirl->da_nrl);
+
+	for (i = 0; i < 8; i++) {
+		err = mv88e6xxx_g2_write(chip, MV88E6XXX_G2_IRL_DATA, data[i]);
+		if (err)
+			return err;
+
+		err = mv88e6xxx_g2_irl_op(chip, MV88E6352_G2_IRL_CMD_OP_WRITE_REG,
+					  port, res, i);
+	        if (err)
+			return err;
+	}
+
+	return 0;
+}
+
+int mv88e6097_g2_pirl_set(struct mv88e6xxx_chip *chip, int port,
+			  enum mv88e6xxx_key_type type, s64 rate, s64 burst)
+{
+	struct mv88e6097_pirl_reg pirl;
+	int err;
+
+	memset(&pirl, 0, sizeof(struct mv88e6097_pirl_reg));
+
+	if (rate > 0) {
+		if (chip->info->family == MV88E6XXX_FAMILY_6097)
+			err = mv88e6097_pirl_calc(&pirl, rate, burst);
+		else
+			err = mv88e6352_pirl_calc(&pirl, rate, burst);
+
+		if (err)
+			return err;
+
+		switch (type) {
+		case MV88E6XXX_KEY_BC_MAC:
+			pirl.bkt_type_mask = 1 << 2;
+			break;
+		case MV88E6XXX_KEY_ALL_MC_MAC:
+			pirl.bkt_type_mask = 0xa;
+			break;
+		case MV88E6XXX_KEY_U_UC_MAC:
+			pirl.bkt_type_mask = 1;
+			break;
+		case MV88E6XXX_KEY_ALL_MAC:
+			pirl.bkt_type_mask = 0x7fff;
+			break;
+		default:
+			pirl.bkt_type_mask = 0x7fff;
+			pr_err("Unknown traffic type: rate-limiting all traffic!");
+		}
+	}
+
+	return mv88e6097_g2_pirl_write(chip, port, 1, &pirl);
+}
+
+int mv88e6390_g2_pirl_set(struct mv88e6xxx_chip *chip, int port,
+			  enum mv88e6xxx_key_type type, s64 rate, s64 burst)
+{
+	struct mv88e6390_pirl_reg pirl;
+	int err;
+
+	memset(&pirl, 0, sizeof(struct mv88e6390_pirl_reg));
+
+	if (rate > 0) {
+		err = mv88e6390_pirl_calc(&pirl, rate, burst);
+		if (err)
+			return err;
+
+		switch (type) {
+		case MV88E6XXX_KEY_BC_MAC:
+			pirl.bkt_type_mask = 1 << 2;
+			break;
+		case MV88E6XXX_KEY_ALL_MC_MAC:
+			pirl.bkt_type_mask = 0xa;
+			break;
+		case MV88E6XXX_KEY_U_UC_MAC:
+			pirl.bkt_type_mask = 1;
+			break;
+		case MV88E6XXX_KEY_ALL_MAC:
+			pirl.bkt_type_mask = 0xffff;
+			break;
+		default:
+			pirl.bkt_type_mask = 0xffff;
+			pr_err("Unknown traffic type: rate-limiting all traffic!");
+		}
+	}
+
+	return mv88e6390_g2_pirl_write(chip, port, 1, &pirl);
+}
