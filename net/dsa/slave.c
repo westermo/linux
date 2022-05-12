@@ -2344,11 +2344,11 @@ int dsa_slave_create(struct dsa_port *port)
 	char *trig_name;
 
 	if (!ds->num_tx_queues)
-		ds->num_tx_queues = 1;
+		ds->num_tx_queues = 8;
 
 	slave_dev = alloc_netdev_mqs(sizeof(struct dsa_slave_priv), name,
 				     NET_NAME_UNKNOWN, ether_setup,
-				     ds->num_tx_queues, 1);
+				     ds->num_tx_queues, 8);
 	if (slave_dev == NULL)
 		return -ENOMEM;
 
