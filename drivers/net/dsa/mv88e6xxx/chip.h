@@ -329,6 +329,49 @@ struct mv88e6xxx_mst {
 	struct mv88e6xxx_stu_entry stu;
 };
 
+enum mv88e6xxx_key_type {
+	MV88E6XXX_KEY_PORT_PRIO,
+	MV88E6XXX_KEY_VLAN_PCP,
+	MV88E6XXX_KEY_IP_DSCP,
+	MV88E6XXX_KEY_BC_MAC,
+	MV88E6XXX_KEY_MC_MAC,
+	MV88E6XXX_KEY_UC_MAC,
+	MV88E6XXX_KEY_U_UC_MAC,
+	MV88E6XXX_KEY_ALL_MC_MAC,
+	MV88E6XXX_KEY_ALL_UC_MAC,
+	MV88E6XXX_KEY_ALL_MAC,
+
+	MV88E6XXX_KEY_UNSPEC,
+};
+
+struct mv88e6xxx_key {
+	enum mv88e6xxx_key_type type;
+};
+
+enum mv88e6xxx_rule_type {
+	MV88E6XXX_RULE_PORT_PRIO,
+	MV88E6XXX_RULE_VLAN_PCP_PRIO,
+	MV88E6XXX_RULE_IP_DSCP_PRIO,
+	MV88E6XXX_RULE_BC_MAC_POLICE,
+	MV88E6XXX_RULE_ALL_MC_MAC_POLICE,
+	MV88E6XXX_RULE_U_UC_MAC_POLICE,
+	MV88E6XXX_RULE_ALL_MAC_POLICE,
+};
+
+struct mv88e6xxx_rule {
+	struct list_head list;
+	unsigned long cookie;
+	struct mv88e6xxx_key key;
+	enum mv88e6xxx_rule_type type;
+
+	union {
+	};
+};
+
+struct mv88e6xxx_flow_block {
+	struct list_head rules;
+};
+
 struct mv88e6xxx_chip {
 	const struct mv88e6xxx_info *info;
 
@@ -435,6 +478,8 @@ struct mv88e6xxx_chip {
 
 	/* Bridge MST to SID mappings */
 	struct list_head msts;
+
+	struct mv88e6xxx_flow_block flow_block;
 };
 
 struct mv88e6xxx_bus_ops {
@@ -461,6 +506,8 @@ struct mv88e6xxx_ops {
 
 	/* Ingress Rate Limit unit (IRL) operations */
 	int (*irl_init_all)(struct mv88e6xxx_chip *chip, int port);
+	int (*irl_set)(struct mv88e6xxx_chip *chip, int port,
+		       enum mv88e6xxx_key_type type, s64 rate, s64 burst);
 
 	int (*get_eeprom)(struct mv88e6xxx_chip *chip,
 			  struct ethtool_eeprom *eeprom, u8 *data);

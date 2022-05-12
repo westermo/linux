@@ -4014,11 +4014,25 @@ static int mv88e6390_setup_errata(struct mv88e6xxx_chip *chip)
 	return mv88e6xxx_software_reset(chip);
 }
 
+void mv88e6xxx_flower_teardown(struct dsa_switch *ds)
+{
+	struct mv88e6xxx_chip *chip = ds->priv;
+	struct mv88e6xxx_rule *rule;
+	struct list_head *pos, *n;
+
+	list_for_each_safe(pos, n, &chip->flow_block.rules) {
+		rule = list_entry(pos, struct mv88e6xxx_rule, list);
+		list_del(&rule->list);
+		kfree(rule);
+	}
+}
+
 static void mv88e6xxx_teardown(struct dsa_switch *ds)
 {
 	mv88e6xxx_teardown_devlink_params(ds);
 	dsa_devlink_resources_unregister(ds);
 	mv88e6xxx_teardown_devlink_regions_global(ds);
+	mv88e6xxx_flower_teardown(ds);
 }
 
 static int mv88e6xxx_setup(struct dsa_switch *ds)
@@ -4030,6 +4044,8 @@ static int mv88e6xxx_setup(struct dsa_switch *ds)
 
 	chip->ds = ds;
 	ds->slave_mii_bus = mv88e6xxx_default_mdio_bus(chip);
+
+	INIT_LIST_HEAD(&chip->flow_block.rules);
 
 	/* Since virtual bridges are mapped in the PVT, the number we support
 	 * depends on the physical switch topology. We need to let DSA figure
@@ -4617,6 +4633,7 @@ static const struct mv88e6xxx_ops mv88e6097_ops = {
 	.ieee_pri_map = mv88e6085_g1_ieee_pri_map,
 	.ip_pri_map = mv88e6085_g1_ip_pri_map,
 	.irl_init_all = mv88e6352_g2_irl_init_all,
+	.irl_set = mv88e6097_g2_pirl_set,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
 	.phy_read = mv88e6xxx_g2_smi_phy_read,
 	.phy_write = mv88e6xxx_g2_smi_phy_write,
@@ -5741,6 +5758,7 @@ static const struct mv88e6xxx_ops mv88e6352_ops = {
 	.ieee_pri_map = mv88e6085_g1_ieee_pri_map,
 	.ip_pri_map = mv88e6085_g1_ip_pri_map,
 	.irl_init_all = mv88e6352_g2_irl_init_all,
+	.irl_set = mv88e6097_g2_pirl_set,
 	.get_eeprom = mv88e6xxx_g2_get_eeprom16,
 	.set_eeprom = mv88e6xxx_g2_set_eeprom16,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
@@ -5807,6 +5825,7 @@ static const struct mv88e6xxx_ops mv88e6390_ops = {
 	/* MV88E6XXX_FAMILY_6390 */
 	.setup_errata = mv88e6390_setup_errata,
 	.irl_init_all = mv88e6390_g2_irl_init_all,
+	.irl_set = mv88e6390_g2_pirl_set,
 	.get_eeprom = mv88e6xxx_g2_get_eeprom8,
 	.set_eeprom = mv88e6xxx_g2_set_eeprom8,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
@@ -5875,6 +5894,7 @@ static const struct mv88e6xxx_ops mv88e6390x_ops = {
 	/* MV88E6XXX_FAMILY_6390 */
 	.setup_errata = mv88e6390_setup_errata,
 	.irl_init_all = mv88e6390_g2_irl_init_all,
+	.irl_set = mv88e6390_g2_pirl_set,
 	.get_eeprom = mv88e6xxx_g2_get_eeprom8,
 	.set_eeprom = mv88e6xxx_g2_set_eeprom8,
 	.set_switch_mac = mv88e6xxx_g2_set_switch_mac,
@@ -7490,6 +7510,285 @@ static int mv88e6xxx_crosschip_lag_leave(struct dsa_switch *ds, int sw_index,
 	return err_sync ? : err_pvt;
 }
 
+struct mv88e6xxx_rule *mv88e6xxx_rule_find(struct mv88e6xxx_chip *chip,
+					   unsigned long cookie)
+{
+	struct mv88e6xxx_rule *rule;
+
+	list_for_each_entry(rule, &chip->flow_block.rules, list)
+		if (rule->cookie == cookie)
+			return rule;
+
+	return NULL;
+}
+
+static int mv88e6xxx_setup_port_policer(struct dsa_switch *ds,
+					int port,
+					struct netlink_ext_ack *extack,
+					unsigned long cookie,
+					struct mv88e6xxx_key *key,
+					struct flow_action_entry *act)
+{
+	struct mv88e6xxx_chip *chip = ds->priv;
+	struct mv88e6xxx_rule *rule = mv88e6xxx_rule_find(chip, cookie);
+	bool new_rule = false;
+	int err;
+
+	if (!chip->info->ops->irl_set)
+		return -EOPNOTSUPP;
+
+	if (!rule) {
+		rule = kzalloc(sizeof(*rule), GFP_KERNEL);
+		if (!rule)
+			return -ENOMEM;
+
+		rule->cookie = cookie;
+		new_rule = true;
+	}
+
+	switch (key->type) {
+	case MV88E6XXX_KEY_BC_MAC:
+		rule->type = MV88E6XXX_RULE_BC_MAC_POLICE;
+		break;
+	case MV88E6XXX_KEY_ALL_MC_MAC:
+		rule->type = MV88E6XXX_RULE_ALL_MC_MAC_POLICE;
+		break;
+	case MV88E6XXX_KEY_U_UC_MAC:
+		rule->type = MV88E6XXX_RULE_U_UC_MAC_POLICE;
+		break;
+	case MV88E6XXX_KEY_ALL_MAC:
+		rule->type = MV88E6XXX_RULE_ALL_MAC_POLICE;
+		break;
+	default:
+		NL_SET_ERR_MSG_MOD(extack, "Unknown key for policing");
+		err = -EOPNOTSUPP;
+		goto out;
+	}
+
+	rule->key.type = key->type;
+
+	mv88e6xxx_reg_lock(chip);
+	err = chip->info->ops->irl_set(chip, port, key->type,
+				       act->police.rate_bytes_ps,
+				       act->police.burst);
+	mv88e6xxx_reg_unlock(chip);
+
+ out:
+	if (err == 0 && new_rule)
+		list_add(&rule->list, &chip->flow_block.rules);
+	else if (new_rule)
+		kfree(rule);
+
+	return err;
+}
+
+static int mv88e6xxx_flower_parse_key(struct flow_cls_offload *cls,
+				      struct mv88e6xxx_key *key)
+{
+	struct flow_rule *rule = flow_cls_offload_flow_rule(cls);
+	struct flow_dissector *dissector = rule->match.dissector;
+	u8 uc[ETH_ALEN] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+	u8 _mask[ETH_ALEN] = { 0x01, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
+	if (dissector->used_keys &
+	    ~(BIT(FLOW_DISSECTOR_KEY_CONTROL) |
+	      BIT(FLOW_DISSECTOR_KEY_BASIC) |
+	      BIT(FLOW_DISSECTOR_KEY_VLAN) |
+	      BIT(FLOW_DISSECTOR_KEY_ETH_ADDRS) |
+	      BIT(FLOW_DISSECTOR_KEY_IP))) {
+		return -EOPNOTSUPP;
+	}
+
+	key->type = MV88E6XXX_KEY_UNSPEC;
+
+	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_ETH_ADDRS)) {
+		struct flow_match_eth_addrs match;
+
+		flow_rule_match_eth_addrs(rule, &match);
+
+		if (is_broadcast_ether_addr(match.key->dst)) {
+			key->type = MV88E6XXX_KEY_BC_MAC;
+			goto out;
+		}
+
+		if (is_multicast_ether_addr(match.key->dst) &&
+		    ether_addr_equal(match.mask->dst, _mask)) {
+			key->type = MV88E6XXX_KEY_ALL_MC_MAC;
+		        goto out;
+		}
+
+		if (ether_addr_equal(match.key->dst, uc) &&
+		    ether_addr_equal(match.mask->dst, _mask)) {
+			key->type = MV88E6XXX_KEY_U_UC_MAC;
+		        goto out;
+		}
+	}
+
+	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_VLAN)) {
+		struct flow_match_vlan match;
+
+		flow_rule_match_vlan(rule, &match);
+
+		if (match.mask->vlan_priority != 0) {
+			key->type = MV88E6XXX_KEY_VLAN_PCP;
+			goto out;
+		}
+	}
+
+	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IP)) {
+		key->type = MV88E6XXX_KEY_IP_DSCP;
+		goto out;
+	}
+
+ out:
+	return 0;
+}
+
+static int mv88e6xxx_setup_port_priority(struct dsa_switch *ds,
+					 int port,
+					 struct netlink_ext_ack *extack,
+					 unsigned long cookie,
+					 struct mv88e6xxx_key *key,
+					 struct flow_action_entry *act)
+{
+	struct mv88e6xxx_chip *chip = ds->priv;
+	struct mv88e6xxx_rule *rule = mv88e6xxx_rule_find(chip, cookie);
+	bool new_rule = false;
+	int err;
+
+	if (!rule) {
+		rule = kzalloc(sizeof(*rule), GFP_KERNEL);
+		if (!rule)
+			return -ENOMEM;
+
+		rule->cookie = cookie;
+		new_rule = true;
+	}
+
+	mv88e6xxx_reg_lock(chip);
+
+	switch (key->type) {
+	case MV88E6XXX_KEY_PORT_PRIO:
+		rule->type = MV88E6XXX_RULE_PORT_PRIO;
+		err = mv88e6xxx_port_set_prio(chip, port, act->priority);
+		break;
+	case MV88E6XXX_KEY_VLAN_PCP:
+		rule->type = MV88E6XXX_RULE_VLAN_PCP_PRIO;
+		err = mv88e6xxx_port_set_prio_mode(chip, port,
+						   MV88E6185_PORT_CTL0_USE_TAG, true);
+		break;
+	case MV88E6XXX_KEY_IP_DSCP:
+		rule->type = MV88E6XXX_RULE_IP_DSCP_PRIO;
+		err = mv88e6xxx_port_set_prio_mode(chip, port,
+						   MV88E6185_PORT_CTL0_USE_IP, true);
+		break;
+	default:
+		NL_SET_ERR_MSG_MOD(extack, "Unknown key for port priority");
+		err = -EOPNOTSUPP;
+	}
+
+	mv88e6xxx_reg_unlock(chip);
+
+	rule->key.type = key->type;
+
+	if (err == 0 && new_rule)
+		list_add(&rule->list, &chip->flow_block.rules);
+	else if (new_rule)
+		kfree(rule);
+
+	return err;
+}
+
+static int mv88e6xxx_flower_action_parse_and_apply(struct dsa_switch *ds,
+						   int port,
+						   struct netlink_ext_ack *extack,
+						   unsigned long cookie,
+						   struct flow_cls_offload *cls,
+						   struct mv88e6xxx_key *key)
+{
+	struct flow_rule *rule = flow_cls_offload_flow_rule(cls);
+	struct flow_action *flow_action = &rule->action;
+	struct flow_action_entry *act;
+	int err = 0;
+
+	if (!flow_action_has_entries(flow_action))
+		return -EINVAL;
+
+	act = &flow_action->entries[0];
+
+	switch (act->id) {
+	case FLOW_ACTION_PRIORITY:
+		if (key->type == MV88E6XXX_KEY_UNSPEC)
+			key->type = MV88E6XXX_KEY_PORT_PRIO;
+		err = mv88e6xxx_setup_port_priority(ds, port, extack,
+						    cookie, key, act);
+		break;
+	case FLOW_ACTION_POLICE:
+		err = mv88e6xxx_setup_port_policer(ds, port, extack,
+						   cookie, key, act);
+		break;
+	default:
+		return -EOPNOTSUPP;
+	}
+
+	return err;
+}
+
+int mv88e6xxx_cls_flower_add(struct dsa_switch *ds, int port,
+			     struct flow_cls_offload *cls, bool ingress)
+{
+	struct netlink_ext_ack *extack = cls->common.extack;
+	struct mv88e6xxx_key key;
+	unsigned long cookie = cls->cookie;
+	int err;
+
+	err = mv88e6xxx_flower_parse_key(cls, &key);
+	if (err)
+		return err;
+
+	return mv88e6xxx_flower_action_parse_and_apply(ds, port, extack,
+						       cookie, cls, &key);
+}
+
+int mv88e6xxx_cls_flower_del(struct dsa_switch *ds, int port,
+			     struct flow_cls_offload *cls, bool ingress)
+{
+	struct mv88e6xxx_chip *chip = ds->priv;
+	struct mv88e6xxx_rule *rule = mv88e6xxx_rule_find(chip, cls->cookie);
+	int err = 0;
+
+	if (!rule)
+		return 0;
+
+	mv88e6xxx_reg_lock(chip);
+
+	switch (rule->type) {
+	case MV88E6XXX_RULE_VLAN_PCP_PRIO:
+		err = mv88e6xxx_port_set_prio_mode(chip, port,
+						   MV88E6185_PORT_CTL0_USE_TAG, false);
+		break;
+	case MV88E6XXX_RULE_IP_DSCP_PRIO:
+		err = mv88e6xxx_port_set_prio_mode(chip, port,
+						   MV88E6185_PORT_CTL0_USE_IP, false);
+		break;
+	case MV88E6XXX_RULE_BC_MAC_POLICE:
+	case MV88E6XXX_RULE_ALL_MC_MAC_POLICE:
+	case MV88E6XXX_RULE_U_UC_MAC_POLICE:
+	case MV88E6XXX_RULE_ALL_MAC_POLICE:
+		if (chip->info->ops->irl_set)
+			err = chip->info->ops->irl_set(chip, port,
+						       rule->key.type, 0, 0);
+		else
+			err = -EOPNOTSUPP;
+		break;
+	default:
+		err = -EINVAL;
+	}
+
+	mv88e6xxx_reg_unlock(chip);
+
+	return err;
+}
 static const struct dsa_switch_ops mv88e6xxx_switch_ops = {
 	.get_tag_protocol	= mv88e6xxx_get_tag_protocol,
 	.change_tag_protocol	= mv88e6xxx_change_tag_protocol,
@@ -7555,6 +7854,8 @@ static const struct dsa_switch_ops mv88e6xxx_switch_ops = {
 	.crosschip_lag_change	= mv88e6xxx_crosschip_lag_change,
 	.crosschip_lag_join	= mv88e6xxx_crosschip_lag_join,
 	.crosschip_lag_leave	= mv88e6xxx_crosschip_lag_leave,
+	.cls_flower_add         = mv88e6xxx_cls_flower_add,
+	.cls_flower_del         = mv88e6xxx_cls_flower_del,
 };
 
 static int mv88e6xxx_register_switch(struct mv88e6xxx_chip *chip)
