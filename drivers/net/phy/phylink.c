@@ -23,6 +23,12 @@
 #include "sfp.h"
 #include "swphy.h"
 
+#if defined(CONFIG_PHYLIB_HIGHPRI)
+#define phylink_wq system_highpri_wq
+#else
+#define phylink_wq system_power_efficient_wq
+#endif
+
 #define SUPPORTED_INTERFACES \
 	(SUPPORTED_TP | SUPPORTED_MII | SUPPORTED_FIBRE | \
 	 SUPPORTED_BNC | SUPPORTED_AUI | SUPPORTED_Backplane)
@@ -1132,7 +1138,7 @@ static void phylink_resolve(struct work_struct *w)
 	}
 	if (!link_state.link && retrigger) {
 		pl->mac_link_dropped = false;
-		queue_work(system_power_efficient_wq, &pl->resolve);
+		queue_work(phylink_wq, &pl->resolve);
 	}
 	mutex_unlock(&pl->state_mutex);
 }
@@ -1140,7 +1146,7 @@ static void phylink_resolve(struct work_struct *w)
 static void phylink_run_resolve(struct phylink *pl)
 {
 	if (!pl->phylink_disable_state)
-		queue_work(system_power_efficient_wq, &pl->resolve);
+		queue_work(phylink_wq, &pl->resolve);
 }
 
 static void phylink_run_resolve_and_disable(struct phylink *pl, int bit)
@@ -1149,7 +1155,7 @@ static void phylink_run_resolve_and_disable(struct phylink *pl, int bit)
 
 	set_bit(bit, &pl->phylink_disable_state);
 	if (state == 0) {
-		queue_work(system_power_efficient_wq, &pl->resolve);
+		queue_work(phylink_wq, &pl->resolve);
 		flush_work(&pl->resolve);
 	}
 }

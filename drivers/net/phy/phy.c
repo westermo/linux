@@ -416,8 +416,12 @@ EXPORT_SYMBOL(phy_do_ioctl_running);
  */
 void phy_queue_state_machine(struct phy_device *phydev, unsigned long jiffies)
 {
-	mod_delayed_work(system_power_efficient_wq, &phydev->state_queue,
-			 jiffies);
+	struct workqueue_struct *wq = system_power_efficient_wq;
+
+	if (IS_ENABLED(CONFIG_PHYLIB_HIGHPRI))
+		wq = system_highpri_wq;
+
+	mod_delayed_work(wq, &phydev->state_queue, jiffies);
 }
 EXPORT_SYMBOL(phy_queue_state_machine);
 

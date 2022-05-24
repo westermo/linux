@@ -28,6 +28,16 @@ if PHYLIB
 config SWPHY
 	bool
 
+config PHYLIB_HIGHPRI
+       bool "Run the PHY state machine from the high-prio workqueue"
+       help
+         Normally the PHY state machine is scheduled on the power
+         efficient workqueue which is a good option for most
+         systems. This option moves the state machine to the
+         high-priority workqueue. This is useful for systems where
+         reaction time to link events is critical, e.g. on networking
+         devices.
+
 config LED_TRIGGER_PHY
 	bool "Support LED triggers for tracking link state"
 	depends on LEDS_TRIGGERS
