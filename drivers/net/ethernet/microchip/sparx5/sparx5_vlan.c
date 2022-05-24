@@ -215,11 +215,10 @@ void sparx5_vlan_port_apply(struct sparx5 *sparx5,
 	/* Egress configuration (REW_TAG_CFG): VLAN tag type to 8021Q */
 	val = REW_TAG_CTRL_TAG_TPID_CFG_SET(0);
 	if (port->vlan_aware) {
-		if (port->vid)
-			/* Tag all frames except when VID == DEFAULT_VLAN */
-			val |= REW_TAG_CTRL_TAG_CFG_SET(1);
-		else
-			val |= REW_TAG_CTRL_TAG_CFG_SET(3);
+		/* Tag all frames except when classified VID == DEFAULT_VLAN
+		 * or classified VID == 0
+		 */
+		val |= REW_TAG_CTRL_TAG_CFG_SET(1);
 	}
 	spx5_wr(val, sparx5, REW_TAG_CTRL(port->portno));
 
