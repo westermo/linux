@@ -270,6 +270,13 @@ struct ethtool_tunable {
 #define ETHTOOL_PHY_FAST_LINK_DOWN_ON	0
 #define ETHTOOL_PHY_FAST_LINK_DOWN_OFF	0xff
 
+/* The master-follower phy modes supported */
+enum tunable_phy_master_follower_mode {
+	ETHTOOL_TUNABLE_PHY_MODE_AUTO = 0,
+	ETHTOOL_TUNABLE_PHY_MODE_MASTER,
+	ETHTOOL_TUNABLE_PHY_MODE_FOLLOWER
+};
+
 /* Energy Detect Power Down (EDPD) is a feature supported by some PHYs, where
  * the PHY's RX & TX blocks are put into a low-power mode when there is no
  * link detected (typically cable is un-plugged). For RX, only a minimal
@@ -296,6 +303,9 @@ enum phy_tunable_id {
 	ETHTOOL_PHY_DOWNSHIFT,
 	ETHTOOL_PHY_FAST_LINK_DOWN,
 	ETHTOOL_PHY_EDPD,
+	ETHTOOL_PHY_FAST_LINK_UP,
+	ETHTOOL_PHY_FAST_LINK_100mbit,
+	ETHTOOL_PHY_MASTER_FOLLOWER_MODE,
 	/*
 	 * Add your fresh new phy tunable attribute above and remember to update
 	 * phy_tunable_strings[] in net/ethtool/common.c
