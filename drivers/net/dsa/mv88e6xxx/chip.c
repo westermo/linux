@@ -1576,22 +1576,71 @@ static void mv88e6xxx_get_stats(struct mv88e6xxx_chip *chip, int port,
 	mv88e6xxx_reg_unlock(chip);
 }
 
-static void mv88e6xxx_get_ethtool_stats(struct dsa_switch *ds, int port,
-					uint64_t *data)
+static void mv88e6xxx_update_ethtool_stats(struct mv88e6xxx_port *mv_port)
 {
-	struct mv88e6xxx_chip *chip = ds->priv;
-	int ret;
+	struct mv88e6xxx_chip *chip = mv_port->chip;
+	uint64_t stats_new[MV88E6XXX_N_MAX_STATS];
+	int i, ret;
 
-	mv88e6xxx_reg_lock(chip);
+	if (!chip)
+		return;
 
-	ret = mv88e6xxx_stats_snapshot(chip, port);
-	mv88e6xxx_reg_unlock(chip);
+	memset(&stats_new, 0, sizeof(stats_new));
+
+	mutex_lock(&chip->reg_lock);
+
+	ret = mv88e6xxx_stats_snapshot(chip, mv_port->port);
+	mutex_unlock(&chip->reg_lock);
 
 	if (ret < 0)
 		return;
 
-	mv88e6xxx_get_stats(chip, port, data);
+	mv88e6xxx_get_stats(chip, mv_port->port, (uint64_t *)&stats_new);
 
+	/* Do we have an overflow situation? */
+	for (i = 0; i < MV88E6XXX_N_MAX_STATS; i++) {
+		if (stats_new[i] < chip->ports[mv_port->port].stats.prev.cntr[i])
+			chip->ports[mv_port->port].stats.carry.cntr[i] += (1ULL << 32);
+
+		/* Remember this read's counter values for next loop */
+		chip->ports[mv_port->port].stats.prev.cntr[i] = stats_new[i];
+	}
+}
+
+static void mv88e6xxx_stats_work(struct work_struct *work)
+{
+	struct delayed_work *dwork = to_delayed_work(work);
+	struct mv88e6xxx_port *mv_port = container_of(dwork, struct mv88e6xxx_port, stats.work);
+
+	mv88e6xxx_update_ethtool_stats(mv_port);
+
+	/* Complete waiting task */
+	complete(&mv_port->stats.complete);
+
+	/* Re-queue ourselves again */
+	queue_delayed_work(system_power_efficient_wq, &mv_port->stats.work, mv_port->stats.max_delay);
+}
+
+static void mv88e6xxx_get_ethtool_stats(struct dsa_switch *ds, int port,
+					uint64_t *data)
+{
+	struct mv88e6xxx_chip *chip = ds->priv;
+	struct mv88e6xxx_port *mv_prt;
+	int ret;
+	int i;
+
+	mv_prt = &chip->ports[port];
+
+	/* Request new data */
+	cancel_delayed_work_sync(&mv_prt->stats.work);
+	queue_delayed_work(system_power_efficient_wq, &mv_prt->stats.work, 0);
+
+	if ((ret = wait_for_completion_interruptible_timeout(&mv_prt->stats.complete,
+			msecs_to_jiffies(MV88E6XXX_WAIT_POLL_TIME_MS))) <= 0)
+		dev_err(chip->dev, "RMON timeout waiting for data, returning stale data %d\n", ret);
+
+	for (i = 0; i < MV88E6XXX_N_MAX_STATS; ++i)
+		data[i] = mv_prt->stats.carry.cntr[i] | mv_prt->stats.prev.cntr[i];
 }
 
 static int mv88e6xxx_get_regs_len(struct dsa_switch *ds, int port)
@@ -7477,6 +7526,26 @@ static int mv88e6xxx_probe(struct mdio_device *mdiodev)
 	err = mv88e6xxx_leds_register(chip, np);
 	if (err)
 		goto out_mdio;
+
+	for (port = 0; port < mv88e6xxx_num_ports(chip); port++) {
+		struct mv88e6xxx_port *prt;
+		unsigned long rand;
+		int delay;
+
+		prt = &chip->ports[port];
+
+		memset(&prt->stats.carry, 0, sizeof(struct mv88e6xxx_stats_cntr));
+		memset(&prt->stats.prev, 0, sizeof(struct mv88e6xxx_stats_cntr));
+		delay = U32_MAX / 7440500; /* 2.5G port max pps */
+		delay *= HZ;
+
+		prt->stats.max_delay = delay;
+		init_completion(&prt->stats.complete);
+		get_random_bytes(&rand, sizeof(rand));
+		INIT_DELAYED_WORK(&prt->stats.work, mv88e6xxx_stats_work);
+		/* Randomize first run to spread out poll work */
+		queue_delayed_work(system_wq, &prt->stats.work, rand % prt->stats.max_delay);
+	}
 
 	return 0;
 

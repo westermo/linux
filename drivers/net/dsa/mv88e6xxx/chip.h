@@ -21,6 +21,7 @@
 #define EDSA_HLEN		8
 #define MV88E6XXX_N_FID		4096
 #define MV88E6XXX_N_SID		64
+#define MV88E6XXX_N_MAX_STATS   64
 
 #define MV88E6XXX_FID_STANDALONE	0
 #define MV88E6XXX_FID_BRIDGED		1
@@ -32,6 +33,8 @@
 	(MV88E6XXX_MAX_PVT_SWITCHES * MV88E6XXX_MAX_PVT_PORTS)
 
 #define MV88E6XXX_MAX_GPIO	16
+
+#define MV88E6XXX_WAIT_POLL_TIME_MS	200
 
 enum mv88e6xxx_egress_mode {
 	MV88E6XXX_EGRESS_MODE_UNMODIFIED,
@@ -265,11 +268,24 @@ struct mv88e6xxx_vlan {
 	bool	valid;
 };
 
+struct mv88e6xxx_stats_cntr {
+	u64 cntr[MV88E6XXX_N_MAX_STATS];
+};
+
+struct mv88e6xxx_stats {
+	struct mv88e6xxx_stats_cntr carry;
+	struct mv88e6xxx_stats_cntr prev;
+	struct delayed_work work;
+	struct completion complete;
+	unsigned int max_delay;
+};
+
 struct mv88e6xxx_port {
 	struct mv88e6xxx_chip *chip;
 	int port;
 	struct mv88e6xxx_vlan bridge_pvid;
 	u64 serdes_stats[2];
+	struct mv88e6xxx_stats stats;
 	u64 atu_member_violation;
 	u64 atu_miss_violation;
 	u64 atu_full_violation;
