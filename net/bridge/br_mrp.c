@@ -1156,6 +1156,34 @@ static int br_mrp_correct_vid(struct net_bridge_port *p, struct sk_buff *skb,
 	return 1;
 }
 
+static void br_mrp_forward(const struct net_bridge_port *to,
+			   struct sk_buff *skb, bool local_rcv, bool local_orig,
+			   bool bypass_blocked)
+{
+	struct sk_buff *nskb;
+
+	/* This is a workaroud that should most likely be discussed upstream how
+	 * this should be handled. When a MRP frame is forwarded through SW the
+	 * destination port may be in a BLOCKING state, but per the MRP standard
+	 * the frame may still need to be forwarded. The br_forward() function
+	 * will check that the dst port is in FORWARDING, if it is not the frame
+	 * will not be forwarded. For now we use the br_forward(), as upstream
+	 * do, for all cases except when the dst port is blocking. In this case
+	 * we need to clone the frame and xmit it directly and bypass the
+	 * bridge. This is not ideal, but we need to be able to forward though
+	 * blocked ports when we are a MRC */
+	if (bypass_blocked && nbp_switchdev_allowed_egress(to, skb)) {
+		nskb = skb_clone(skb, GFP_ATOMIC);
+		if (!nskb)
+			return;
+
+		nskb->dev = to->dev;
+		skb_push(nskb, ETH_HLEN);
+		dev_queue_xmit(nskb);
+	} else {
+		br_forward(to, skb, local_rcv, local_orig);
+	}
+}
 
 /* This will just forward the frame to the other mrp ring ports, depending on
  * the frame type, ring role and interconnect role
@@ -1166,6 +1194,7 @@ static int br_mrp_rcv(struct net_bridge_port *p,
 {
 	struct net_bridge_port *p_port, *s_port, *i_port = NULL;
 	struct net_bridge_port *p_dst, *s_dst, *i_dst = NULL;
+	bool bypass_blocked = false;
 	struct net_bridge *br;
 	struct br_mrp *mrp;
 
@@ -1234,6 +1263,19 @@ static int br_mrp_rcv(struct net_bridge_port *p,
 			nbp_switchdev_frame_mark(p == p_dst ? s_dst : p_dst,
 						 skb);
 
+			/* Indicate that the dest ring port is in blocking state
+			 * and we need to perform a bypass of this when
+			 * forwarding the frame. */
+			if ((p == p_dst && s_dst->state == BR_STATE_BLOCKING) ||
+			    (p == s_dst && p_dst->state == BR_STATE_BLOCKING))
+				bypass_blocked = true;
+
+			/* Mark the ring port we entered on as NULL, no need to
+			 * even call forward for a port that we entered on. */
+			if (p == p_dst)
+				p_dst = NULL;
+			else
+				s_dst = NULL;
 		}
 
 		goto forward;
@@ -1352,11 +1394,11 @@ forward:
 		skb_vlan_pop(skb);
 
 	if (p_dst)
-		br_forward(p_dst, skb, true, false);
+		br_mrp_forward(p_dst, skb, true, false, bypass_blocked);
 	if (s_dst)
-		br_forward(s_dst, skb, true, false);
+		br_mrp_forward(s_dst, skb, true, false, bypass_blocked);
 	if (i_dst)
-		br_forward(i_dst, skb, true, false);
+		br_mrp_forward(i_dst, skb, true, false, bypass_blocked);
 
 no_forward:
 	return 1;
