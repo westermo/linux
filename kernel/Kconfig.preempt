@@ -132,4 +132,14 @@ config SCHED_CORE
 	  which is the likely usage by Linux distributions, there should
 	  be no measurable impact on performance.
 
+config WQ_HIGHPRI_RT_DEFAULT
+	bool "Run high prio workqueue workers in SCHED_FIFO by default"
+	default n
+	help
+	  Normally, high priority workqueue worker run with the lowest possible
+	  nice value. When this option is set, workers are instead placed in
+	  SCHED_FIFO with a priority of 49.
 
+	  This is useful when a more deteministic processing latency is sought.
+
+	  If in doubt, say N.

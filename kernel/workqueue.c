@@ -51,6 +51,7 @@
 #include <linux/sched/isolation.h>
 #include <linux/nmi.h>
 #include <linux/kvm_para.h>
+#include <uapi/linux/sched/types.h>
 
 #include "workqueue_internal.h"
 
@@ -304,6 +305,9 @@ module_param_named(disable_numa, wq_disable_numa, bool, 0444);
 /* see the comment above the definition of WQ_POWER_EFFICIENT */
 static bool wq_power_efficient = IS_ENABLED(CONFIG_WQ_POWER_EFFICIENT_DEFAULT);
 module_param_named(power_efficient, wq_power_efficient, bool, 0444);
+
+static bool wq_highpri_rt = IS_ENABLED(CONFIG_WQ_HIGHPRI_RT_DEFAULT);
+module_param_named(highpri_rt, wq_highpri_rt, bool, 0444);
 
 static bool wq_online;			/* can kworkers be created yet? */
 
@@ -1969,7 +1973,14 @@ static struct worker *create_worker(struct worker_pool *pool)
 	if (IS_ERR(worker->task))
 		goto fail;
 
-	set_user_nice(worker->task, pool->attrs->nice);
+	if ((pool->attrs->nice < 0) && wq_highpri_rt) {
+		struct sched_param param = { .sched_priority = 49 };
+
+		sched_setscheduler(worker->task, SCHED_FIFO, &param);
+	} else {
+		set_user_nice(worker->task, pool->attrs->nice);
+	}
+
 	kthread_bind_mask(worker->task, pool->attrs->cpumask);
 
 	/* successful, attach the worker to the pool */
