@@ -103,10 +103,7 @@ int mv88e6xxx_wait_mask(struct mv88e6xxx_chip *chip, int addr, int reg,
 		if ((data & mask) == val)
 			return 0;
 
-		if (i < 2)
-			cpu_relax();
-		else
-			usleep_range(1000, 2000);
+		cpu_relax();
 	}
 
 	dev_err(chip->dev, "Timeout while waiting for switch\n");
