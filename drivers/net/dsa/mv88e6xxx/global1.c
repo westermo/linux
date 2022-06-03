@@ -466,16 +466,100 @@ int mv88e6085_g1_rmu_disable(struct mv88e6xxx_chip *chip)
 				      MV88E6085_G1_CTL2_RM_ENABLE, 0);
 }
 
+int mv88e6085_g1_rmu_enable(struct mv88e6xxx_chip *chip)
+{
+	int val = MV88E6352_G1_CTL2_RMU_MODE_DISABLED;
+	int upstream_port = -1;
+
+	upstream_port = dsa_switch_upstream_port(chip->ds);
+	dev_err(chip->dev, "RMU: Enabling on port %d", upstream_port);
+	if (upstream_port < 0)
+		return -1;
+
+	switch (upstream_port) {
+	case 9:
+		val = MV88E6085_G1_CTL2_RM_ENABLE;
+		break;
+	case 10:
+		val = MV88E6085_G1_CTL2_RM_ENABLE | MV88E6085_G1_CTL2_P10RM;
+		break;
+	default:
+		break;
+	}
+
+	return mv88e6xxx_g1_ctl2_mask(chip, MV88E6085_G1_CTL2_P10RM |
+				      MV88E6085_G1_CTL2_RM_ENABLE, val);
+}
+
 int mv88e6352_g1_rmu_disable(struct mv88e6xxx_chip *chip)
 {
 	return mv88e6xxx_g1_ctl2_mask(chip, MV88E6352_G1_CTL2_RMU_MODE_MASK,
 				      MV88E6352_G1_CTL2_RMU_MODE_DISABLED);
 }
 
+int mv88e6352_g1_rmu_enable(struct mv88e6xxx_chip *chip)
+{
+	int val = MV88E6352_G1_CTL2_RMU_MODE_DISABLED;
+	int upstream_port;
+
+	upstream_port = dsa_switch_upstream_port(chip->ds);
+	dev_err(chip->dev, "RMU: Enabling on port %d", upstream_port);
+	if (upstream_port < 0)
+		return -1;
+
+	switch (upstream_port) {
+	case 4:
+		val = MV88E6352_G1_CTL2_RMU_MODE_PORT_4;
+		break;
+	case 5:
+		val = MV88E6352_G1_CTL2_RMU_MODE_PORT_5;
+		break;
+	case 6:
+		val = MV88E6352_G1_CTL2_RMU_MODE_PORT_6;
+		break;
+	default:
+		break;
+	}
+
+	return mv88e6xxx_g1_ctl2_mask(chip, MV88E6352_G1_CTL2_RMU_MODE_MASK,
+			val);
+}
+
 int mv88e6390_g1_rmu_disable(struct mv88e6xxx_chip *chip)
 {
 	return mv88e6xxx_g1_ctl2_mask(chip, MV88E6390_G1_CTL2_RMU_MODE_MASK,
 				      MV88E6390_G1_CTL2_RMU_MODE_DISABLED);
+}
+
+int mv88e6390_g1_rmu_enable(struct mv88e6xxx_chip *chip)
+{
+	int val = MV88E6390_G1_CTL2_RMU_MODE_DISABLED;
+	int upstream_port;
+
+	upstream_port = dsa_switch_upstream_port(chip->ds);
+	dev_err(chip->dev, "RMU: Enabling on port %d", upstream_port);
+	if (upstream_port < 0)
+		return -1;
+
+	switch (upstream_port) {
+	case 0:
+		val = MV88E6390_G1_CTL2_RMU_MODE_PORT_0;
+		break;
+	case 1:
+		val = MV88E6390_G1_CTL2_RMU_MODE_PORT_1;
+		break;
+	case 9:
+		val = MV88E6390_G1_CTL2_RMU_MODE_PORT_9;
+		break;
+	case 10:
+		val = MV88E6390_G1_CTL2_RMU_MODE_PORT_10;
+		break;
+	default:
+		break;
+	}
+
+	return mv88e6xxx_g1_ctl2_mask(chip, MV88E6390_G1_CTL2_RMU_MODE_MASK,
+			val);
 }
 
 int mv88e6390_g1_stats_set_histogram(struct mv88e6xxx_chip *chip)
