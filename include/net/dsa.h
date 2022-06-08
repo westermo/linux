@@ -87,6 +87,7 @@ struct dsa_switch;
 struct dsa_device_ops {
 	struct sk_buff *(*xmit)(struct sk_buff *skb, struct net_device *dev);
 	struct sk_buff *(*rcv)(struct sk_buff *skb, struct net_device *dev);
+	int (*inband_xmit)(struct sk_buff *skb, struct net_device *dev, int seq_no);
 	void (*flow_dissect)(const struct sk_buff *skb, __be16 *proto,
 			     int *offset);
 	int (*connect)(struct dsa_switch *ds);
@@ -1224,6 +1225,11 @@ struct dsa_switch_ops {
 	int	(*tag_8021q_vlan_add)(struct dsa_switch *ds, int port, u16 vid,
 				      u16 flags);
 	int	(*tag_8021q_vlan_del)(struct dsa_switch *ds, int port, u16 vid);
+
+	/*
+	 * RMU operations
+	 */
+	int	(*inband_receive)(struct dsa_switch *ds, struct sk_buff *skb, int seq_no);
 };
 
 #define DSA_DEVLINK_PARAM_DRIVER(_id, _name, _type, _cmodes)		\

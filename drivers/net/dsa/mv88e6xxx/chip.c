@@ -44,6 +44,7 @@
 #include "ptp.h"
 #include "serdes.h"
 #include "smi.h"
+#include "rmu.h"
 
 typedef enum {
 	LED_FUNCTION_TYPE_LINK_ACT = 0,
@@ -1498,16 +1499,31 @@ static int mv88e6xxx_stats_get_stats(struct mv88e6xxx_chip *chip, int port,
 				     u16 bank1_select, u16 histogram)
 {
 	struct mv88e6xxx_hw_stat *stat;
+	int offset = 0;
+	u64 high;
 	int i, j;
 
 	for (i = 0, j = 0; i < ARRAY_SIZE(mv88e6xxx_hw_stats); i++) {
 		stat = &mv88e6xxx_hw_stats[i];
 		if (stat->type & types) {
-			mv88e6xxx_reg_lock(chip);
-			data[j] = _mv88e6xxx_get_ethtool_stat(chip, stat, port,
-							      bank1_select,
-							      histogram);
-			mv88e6xxx_reg_unlock(chip);
+			if (chip->rmu.ops->get_rmon && !(stat->type & STATS_TYPE_PORT)) {
+				if (stat->type & STATS_TYPE_BANK1)
+					offset = 32;
+
+				data[j] = chip->ports[port].rmu_raw_stats
+						[stat->reg + offset];
+				if (stat->size == 8) {
+					high = chip->ports[port].rmu_raw_stats
+						     [stat->reg + offset + 1];
+					data[j] += (high << 32);
+				}
+			} else {
+				mv88e6xxx_reg_lock(chip);
+				data[j] = _mv88e6xxx_get_ethtool_stat(chip, stat, port,
+								      bank1_select,
+								      histogram);
+				mv88e6xxx_reg_unlock(chip);
+			}
 
 			j++;
 		}
@@ -1587,15 +1603,21 @@ static void mv88e6xxx_update_ethtool_stats(struct mv88e6xxx_port *mv_port)
 
 	memset(&stats_new, 0, sizeof(stats_new));
 
-	mutex_lock(&chip->reg_lock);
+	if (chip->rmu.ops && chip->rmu.ops->get_rmon) {
+		ret = chip->rmu.ops->get_rmon(chip, mv_port->port, stats_new);
+		if (ret == -ETIMEDOUT)
+			return;
+	} else {
+		mutex_lock(&chip->reg_lock);
 
-	ret = mv88e6xxx_stats_snapshot(chip, mv_port->port);
-	mutex_unlock(&chip->reg_lock);
+		ret = mv88e6xxx_stats_snapshot(chip, mv_port->port);
+		mutex_unlock(&chip->reg_lock);
 
-	if (ret < 0)
-		return;
+		if (ret < 0)
+			return;
 
-	mv88e6xxx_get_stats(chip, mv_port->port, (uint64_t *)&stats_new);
+		mv88e6xxx_get_stats(chip, mv_port->port, (uint64_t *)&stats_new);
+	}
 
 	/* Do we have an overflow situation? */
 	for (i = 0; i < MV88E6XXX_N_MAX_STATS; i++) {
@@ -1851,10 +1873,17 @@ static int mv88e6xxx_trunk_setup(struct mv88e6xxx_chip *chip)
 
 static int mv88e6xxx_rmu_setup(struct mv88e6xxx_chip *chip)
 {
-	if (chip->info->ops->rmu_disable)
-		return chip->info->ops->rmu_disable(chip);
+	int ret = 0;
 
-	return 0;
+	if (chip->info->ops->rmu_disable)
+		ret = chip->info->ops->rmu_disable(chip);
+
+	if (chip->info->ops->rmu_enable) {
+		ret += chip->info->ops->rmu_enable(chip);
+		ret += mv88e6xxx_rmu_init(chip);
+	}
+
+	return ret;
 }
 
 static int mv88e6xxx_pot_setup(struct mv88e6xxx_chip *chip)
@@ -4054,6 +4083,36 @@ static int mv88e6xxx_set_ageing_time(struct dsa_switch *ds,
 	return err;
 }
 
+static int mv88e6xxx_stats_wrap_setup(struct mv88e6xxx_chip *chip)
+{
+	int port;
+
+	for (port = 0; port < mv88e6xxx_num_ports(chip); port++) {
+		struct mv88e6xxx_port *prt;
+		unsigned long rand;
+		int delay;
+
+		prt = &chip->ports[port];
+
+		if (!dsa_is_user_port(chip->ds, port))
+			continue;
+
+		memset(&prt->stats.carry, 0, sizeof(struct mv88e6xxx_stats_cntr));
+		memset(&prt->stats.prev, 0, sizeof(struct mv88e6xxx_stats_cntr));
+		delay = U32_MAX / 7440500; /* 2.5G port max pps */
+		delay *= HZ;
+
+		prt->stats.max_delay = delay;
+		init_completion(&prt->stats.complete);
+		get_random_bytes(&rand, sizeof(rand));
+		INIT_DELAYED_WORK(&prt->stats.work, mv88e6xxx_stats_work);
+		/* Randomize first run to spread out poll work */
+		queue_delayed_work(system_wq, &prt->stats.work, rand % prt->stats.max_delay);
+	}
+
+	return 0;
+}
+
 static int mv88e6xxx_stats_setup(struct mv88e6xxx_chip *chip)
 {
 	int err;
@@ -4064,6 +4123,11 @@ static int mv88e6xxx_stats_setup(struct mv88e6xxx_chip *chip)
 		if (err)
 			return err;
 	}
+
+	err = mv88e6xxx_stats_wrap_setup(chip);
+	if (err)
+		dev_err(chip->dev,
+			"Error setting up RMU for chip@%d err %d", chip->sw_addr, err);
 
 	return mv88e6xxx_g1_stats_clear(chip);
 }
@@ -4715,6 +4779,7 @@ static const struct mv88e6xxx_ops mv88e6085_ops = {
 	.ppu_disable = mv88e6185_g1_ppu_disable,
 	.reset = mv88e6185_g1_reset,
 	.rmu_disable = mv88e6085_g1_rmu_disable,
+	.rmu_enable = mv88e6085_g1_rmu_enable,
 	.vtu_getnext = mv88e6352_g1_vtu_getnext,
 	.vtu_loadpurge = mv88e6352_g1_vtu_loadpurge,
 	.stu_getnext = mv88e6352_g1_stu_getnext,
@@ -4799,6 +4864,7 @@ static const struct mv88e6xxx_ops mv88e6097_ops = {
 	.pot_clear = mv88e6xxx_g2_pot_clear,
 	.reset = mv88e6352_g1_reset,
 	.rmu_disable = mv88e6085_g1_rmu_disable,
+	.rmu_enable = mv88e6085_g1_rmu_enable,
 	.vtu_getnext = mv88e6352_g1_vtu_getnext,
 	.vtu_loadpurge = mv88e6352_g1_vtu_loadpurge,
 	.phylink_get_caps = mv88e6095_phylink_get_caps,
@@ -5923,6 +5989,7 @@ static const struct mv88e6xxx_ops mv88e6352_ops = {
 	.pot_clear = mv88e6xxx_g2_pot_clear,
 	.reset = mv88e6352_g1_reset,
 	.rmu_disable = mv88e6352_g1_rmu_disable,
+	.rmu_enable = mv88e6352_g1_rmu_enable,
 	.atu_get_hash = mv88e6165_g1_atu_get_hash,
 	.atu_set_hash = mv88e6165_g1_atu_set_hash,
 	.vtu_getnext = mv88e6352_g1_vtu_getnext,
@@ -5994,6 +6061,7 @@ static const struct mv88e6xxx_ops mv88e6390_ops = {
 	.pot_clear = mv88e6xxx_g2_pot_clear,
 	.reset = mv88e6352_g1_reset,
 	.rmu_disable = mv88e6390_g1_rmu_disable,
+	.rmu_enable = mv88e6390_g1_rmu_enable,
 	.atu_get_hash = mv88e6165_g1_atu_get_hash,
 	.atu_set_hash = mv88e6165_g1_atu_set_hash,
 	.vtu_getnext = mv88e6390_g1_vtu_getnext,
@@ -6065,6 +6133,7 @@ static const struct mv88e6xxx_ops mv88e6390x_ops = {
 	.pot_clear = mv88e6xxx_g2_pot_clear,
 	.reset = mv88e6352_g1_reset,
 	.rmu_disable = mv88e6390_g1_rmu_disable,
+	.rmu_enable = mv88e6390_g1_rmu_enable,
 	.atu_get_hash = mv88e6165_g1_atu_get_hash,
 	.atu_set_hash = mv88e6165_g1_atu_set_hash,
 	.atu_setup = mv88e6390_g1_atu_setup,
@@ -6138,6 +6207,7 @@ static const struct mv88e6xxx_ops mv88e6393x_ops = {
 	.pot_clear = mv88e6xxx_g2_pot_clear,
 	.reset = mv88e6352_g1_reset,
 	.rmu_disable = mv88e6390_g1_rmu_disable,
+	.rmu_enable = mv88e6390_g1_rmu_enable,
 	.atu_get_hash = mv88e6165_g1_atu_get_hash,
 	.atu_set_hash = mv88e6165_g1_atu_set_hash,
 	.vtu_getnext = mv88e6390_g1_vtu_getnext,
@@ -8233,6 +8303,7 @@ static const struct dsa_switch_ops mv88e6xxx_switch_ops = {
 	.port_policer_add	= mv88e6xxx_matchall_policer_add,
 	.port_policer_del	= mv88e6xxx_matchall_policer_del,
 	.port_setup_tc		= mv88e6xxx_port_setup_tc,
+	.inband_receive         = mv88e6xxx_inband_rcv,
 };
 
 static int mv88e6xxx_register_switch(struct mv88e6xxx_chip *chip)
@@ -8433,26 +8504,6 @@ static int mv88e6xxx_probe(struct mdio_device *mdiodev)
 	err = mv88e6xxx_leds_register(chip, np);
 	if (err)
 		goto out_mdio;
-
-	for (port = 0; port < mv88e6xxx_num_ports(chip); port++) {
-		struct mv88e6xxx_port *prt;
-		unsigned long rand;
-		int delay;
-
-		prt = &chip->ports[port];
-
-		memset(&prt->stats.carry, 0, sizeof(struct mv88e6xxx_stats_cntr));
-		memset(&prt->stats.prev, 0, sizeof(struct mv88e6xxx_stats_cntr));
-		delay = U32_MAX / 7440500; /* 2.5G port max pps */
-		delay *= HZ;
-
-		prt->stats.max_delay = delay;
-		init_completion(&prt->stats.complete);
-		get_random_bytes(&rand, sizeof(rand));
-		INIT_DELAYED_WORK(&prt->stats.work, mv88e6xxx_stats_work);
-		/* Randomize first run to spread out poll work */
-		queue_delayed_work(system_wq, &prt->stats.work, rand % prt->stats.max_delay);
-	}
 
 	return 0;
 

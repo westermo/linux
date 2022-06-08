@@ -295,6 +295,7 @@ struct mv88e6xxx_stats {
 struct mv88e6xxx_port {
 	struct mv88e6xxx_chip *chip;
 	int port;
+	u64 rmu_raw_stats[64];
 	struct mv88e6xxx_vlan bridge_pvid;
 	u64 serdes_stats[2];
 	struct mv88e6xxx_stats stats;
@@ -325,6 +326,18 @@ enum mv88e6xxx_region_id {
 
 struct mv88e6xxx_region_priv {
 	enum mv88e6xxx_region_id id;
+};
+
+struct mv88e6xxx_rmu {
+	/* RMU resources */
+	struct net_device *netdev;
+	struct mv88e6xxx_bus_ops *ops;
+	struct completion completion;
+	/* Mutex for RMU operations */
+	struct mutex mutex;
+	u16 got_id;
+	u8 request_cmd;
+	u8 seq_no;
 };
 
 struct mv88e6xxx_mst {
@@ -509,12 +522,16 @@ struct mv88e6xxx_chip {
 	struct list_head msts;
 
 	struct mv88e6xxx_flow_block flow_block;
+
+	/* RMU resources */
+	struct mv88e6xxx_rmu rmu;
 };
 
 struct mv88e6xxx_bus_ops {
 	int (*read)(struct mv88e6xxx_chip *chip, int addr, int reg, u16 *val);
 	int (*write)(struct mv88e6xxx_chip *chip, int addr, int reg, u16 val);
 	int (*init)(struct mv88e6xxx_chip *chip);
+	int (*get_rmon)(struct mv88e6xxx_chip *chip, int port, uint64_t *data);
 };
 
 struct mv88e6xxx_mdio_bus {
@@ -749,6 +766,7 @@ struct mv88e6xxx_ops {
 
 	/* Remote Management Unit operations */
 	int (*rmu_disable)(struct mv88e6xxx_chip *chip);
+	int (*rmu_enable)(struct mv88e6xxx_chip *chip);
 
 	/* Precision Time Protocol operations */
 	const struct mv88e6xxx_ptp_ops *ptp_ops;
