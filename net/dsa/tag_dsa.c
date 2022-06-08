@@ -123,6 +123,96 @@ enum dsa_code {
 	DSA_CODE_RESERVED_7    = 7
 };
 
+#define DSA_RMU_RESV1   0x3e
+#define DSA_RMU         1
+#define DSA_RMU_PRIO    6
+#define DSA_RMU_RESV2   0xf
+
+static int dsa_inband_xmit_ll(struct sk_buff *skb, struct net_device *dev, const u8 *header,
+			      int header_len, int seq_no)
+{
+	static const u8 dest_addr[ETH_ALEN] = {0x01, 0x50, 0x43, 0x00, 0x00, 0x00};
+	struct dsa_port *dp = dsa_slave_to_port(dev);
+	struct ethhdr *eth;
+	u8 *data;
+
+	if (!dp)
+		return -ENODEV;
+
+	/* Create RMU L2 header */
+	data = skb_push(skb, 6);
+	data[0] = (DSA_CMD_FROM_CPU << 6) | dp->ds->index;
+	data[1] = DSA_RMU_RESV1 << 2 | DSA_RMU << 1;
+	data[2] = DSA_RMU_PRIO << 5 | DSA_RMU_RESV2;
+	data[3] = seq_no;
+	data[4] = 0;
+	data[5] = 0;
+
+	/* Add header if any */
+	if (header) {
+		data = skb_push(skb, header_len);
+		memcpy(data, header, header_len);
+	}
+
+	/* Create MAC header */
+	eth = (struct ethhdr *)skb_push(skb, 2 * ETH_ALEN);
+	memcpy(eth->h_source, dev->dev_addr, ETH_ALEN);
+	memcpy(eth->h_dest, dest_addr, ETH_ALEN);
+
+	skb->protocol = htons(ETH_P_RMU_DSA);
+
+	dev_queue_xmit(skb);
+
+	return 0;
+}
+
+static int dsa_inband_xmit(struct sk_buff *skb, struct net_device *dev, int seq_no)
+{
+	return dsa_inband_xmit_ll(skb, dev, NULL, 0, seq_no);
+}
+
+static int edsa_inband_xmit(struct sk_buff *skb, struct net_device *dev, int seq_no)
+{
+	u8 edsa_header[4];
+
+	edsa_header[0] = (ETH_P_EDSA >> 8) & 0xff;
+	edsa_header[1] = ETH_P_EDSA & 0xff;
+	edsa_header[2] = 0x00;
+	edsa_header[3] = 0x00;
+
+	return dsa_inband_xmit_ll(skb, dev, edsa_header, 4, seq_no);
+}
+
+static int dsa_inband_rcv_ll(struct sk_buff *skb, struct net_device *dev)
+{
+	int source_device, source_port;
+	struct dsa_switch *ds;
+	u8 *dsa_header;
+	int rcv_seqno;
+	int ret = 0;
+
+	if (!dev || !dev->dsa_ptr)
+		return 0;
+
+	ds = dev->dsa_ptr->ds;
+
+	dsa_header = skb->data - 2;
+
+	source_device = dsa_header[0] & 0x1f;
+	source_port = (dsa_header[1] >> 3) & 0x1f;
+	ds = dsa_switch_find(ds->dst->index, source_device);
+
+	/* Get rcv seqno */
+	rcv_seqno = dsa_header[3];
+
+	skb_pull(skb, DSA_HLEN);
+
+	if (ds->ops && ds->ops->inband_receive(ds, skb, rcv_seqno))
+		netdev_err(dev, "DSA inband: error decoding packet");
+
+	return ret;
+}
+
 static struct sk_buff *dsa_xmit_ll(struct sk_buff *skb, struct net_device *dev,
 				   u8 extra)
 {
@@ -175,7 +265,7 @@ static struct sk_buff *dsa_xmit_ll(struct sk_buff *skb, struct net_device *dev,
 			dsa_header[1] |= 0x01;
 			dsa_header[2] &= ~0x10;
 		}
-	} else {
+	} else if (skb->protocol != htons(ETH_P_RMU_DSA)) {
 		u16 vid;
 
 		vid = br_dev ? MV88E6XXX_VID_BRIDGED : MV88E6XXX_VID_STANDALONE;
@@ -218,9 +308,7 @@ static struct sk_buff *dsa_rcv_ll(struct sk_buff *skb, struct net_device *dev,
 
 		switch (code) {
 		case DSA_CODE_FRAME2REG:
-			/* Remote management is not implemented yet,
-			 * drop.
-			 */
+			dsa_inband_rcv_ll(skb, dev);
 			return NULL;
 		case DSA_CODE_ARP_MIRROR:
 		case DSA_CODE_POLICY_MIRROR:
@@ -343,6 +431,7 @@ static const struct dsa_device_ops dsa_netdev_ops = {
 	.proto	  = DSA_TAG_PROTO_DSA,
 	.xmit	  = dsa_xmit,
 	.rcv	  = dsa_rcv,
+	.inband_xmit = dsa_inband_xmit,
 	.needed_headroom = DSA_HLEN,
 };
 
@@ -385,6 +474,7 @@ static const struct dsa_device_ops edsa_netdev_ops = {
 	.proto	  = DSA_TAG_PROTO_EDSA,
 	.xmit	  = edsa_xmit,
 	.rcv	  = edsa_rcv,
+	.inband_xmit = edsa_inband_xmit,
 	.needed_headroom = EDSA_HLEN,
 };
 

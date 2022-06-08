@@ -119,6 +119,7 @@
 
 #define ETH_P_802_3_MIN	0x0600		/* If the value in the ethernet type is more than this value
 					 * then the frame is Ethernet II. Else it is 802.3 */
+#define ETH_P_RMU_DSA	0x00FA		/* RMU DSA protocol */
 
 /*
  *	Non DIX types. Won't clash for 1500 types.
