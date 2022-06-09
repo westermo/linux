@@ -335,6 +335,191 @@ out_mapping:
 	return err;
 }
 
+static int mv88e6xxx_g1_phy_irq_read(struct mv88e6xxx_chip *chip, u16 *reg)
+{
+	struct mii_bus *bus;
+
+	bus = mv88e6xxx_default_mdio_bus(chip);
+	if (!bus)
+		return -EOPNOTSUPP;
+
+	if (!chip->info->ops->phy_read)
+		return -EOPNOTSUPP;
+
+	/* PHY Interrupt Port Summary (0x14) */
+	return chip->info->ops->phy_read(chip, bus, 0, 0x14, reg);
+}
+
+static irqreturn_t mv88e6xxx_g1_phy_int_irq_thread_fn(int irq, void *dev_id)
+{
+	struct mv88e6xxx_chip *chip = dev_id;
+	unsigned long bit, active = 0;
+	unsigned int nhandled = 0;
+	unsigned int sub_irq;
+	u16 reg, mask;
+	int err;
+
+	mv88e6xxx_reg_lock(chip);
+	err = mv88e6xxx_g1_phy_irq_read(chip, &reg);
+	mv88e6xxx_reg_unlock(chip);
+
+	if (err)
+		goto out;
+
+	mask = GENMASK(chip->info->num_internal_phys - 1, 0);
+	active |= reg & mask;
+
+	for_each_set_bit(bit, &active, chip->info->num_internal_phys) {
+		sub_irq = irq_find_mapping(chip->g1_phy_irq.domain, bit);
+		handle_nested_irq(sub_irq);
+		++nhandled;
+	}
+
+out:
+	return (nhandled > 0 ? IRQ_HANDLED : IRQ_NONE);
+}
+
+static void mv88e6xxx_g1_phy_irq_bus_sync_unlock(struct irq_data *d)
+{
+	struct mv88e6xxx_chip *chip = irq_data_get_irq_chip_data(d);
+	u16 mask;
+	int err;
+
+	err = mv88e6xxx_g1_read(chip, MV88E6XXX_G1_CTL1, &mask);
+	if (err)
+		goto out;
+
+	mask |= MV88E6XXX_G1_CTL1_PHYINT_EN;
+	err = mv88e6xxx_g1_write(chip, MV88E6XXX_G1_CTL1, mask);
+	if (err)
+		goto out;
+out:
+	mv88e6xxx_reg_unlock(chip);
+}
+
+static int mv88e6xxx_g1_phy_irq_domain_map(struct irq_domain *d,
+					   unsigned int irq,
+					   irq_hw_number_t hwirq)
+{
+	struct mv88e6xxx_chip *chip = d->host_data;
+
+	irq_set_chip_data(irq, d->host_data);
+	irq_set_chip_and_handler(irq, &chip->g1_phy_irq.chip, handle_level_irq);
+	irq_set_noprobe(irq);
+
+	return 0;
+}
+static const struct irq_domain_ops mv88e6xxx_g1_phy_irq_domain_ops = {
+	.map	= mv88e6xxx_g1_phy_irq_domain_map,
+	.xlate	= irq_domain_xlate_twocell,
+};
+
+static struct irq_chip mv88e6xxx_g1_phy_irq_chip = {
+	.name			= "mv88e6xxx-g1-phy",
+	.irq_mask		= mv88e6xxx_g1_irq_mask,
+	.irq_unmask		= mv88e6xxx_g1_irq_unmask,
+	.irq_bus_lock		= mv88e6xxx_g1_irq_bus_lock,
+	.irq_bus_sync_unlock	= mv88e6xxx_g1_phy_irq_bus_sync_unlock,
+};
+
+int mv88e6xxx_g1_phy_irq_setup(struct mv88e6xxx_chip *chip)
+{
+	int virq, irq, err;
+
+	if (!chip->dev->of_node)
+		return -EINVAL;
+
+	chip->g1_phy_irq.nirqs = chip->info->num_internal_phys;
+	chip->g1_phy_irq.domain =
+		irq_domain_add_simple(chip->dev->of_node,
+				      chip->g1_phy_irq.nirqs, 0,
+				      &mv88e6xxx_g1_phy_irq_domain_ops, chip);
+	if (!chip->g1_phy_irq.domain)
+		return -ENOMEM;
+
+	for (irq = 0; irq < chip->g1_phy_irq.nirqs; irq++)
+		irq_create_mapping(chip->g1_phy_irq.domain, irq);
+
+	chip->g1_phy_irq.masked = ~0;
+	chip->g1_phy_irq.chip = mv88e6xxx_g1_phy_irq_chip;
+
+	chip->phy_int_irq = irq_find_mapping(chip->g1_irq.domain,
+					     MV88E6XXX_G1_STS_IRQ_PHY_INT);
+	if (chip->phy_int_irq < 0) {
+		err = chip->phy_int_irq;
+		goto out;
+	}
+
+	snprintf(chip->phy_int_irq_name, sizeof(chip->phy_int_irq_name),
+		 "mv88e6xxx-%s-g1-phy-int", dev_name(chip->dev));
+
+	err = request_threaded_irq(chip->phy_int_irq, NULL,
+				   mv88e6xxx_g1_phy_int_irq_thread_fn,
+				   IRQF_ONESHOT | IRQF_TRIGGER_LOW,
+				   chip->phy_int_irq_name, chip);
+	if (err)
+		goto out;
+
+	return 0;
+
+out:
+	for (irq = 0; irq < chip->g1_phy_irq.nirqs; irq++) {
+		virq = irq_find_mapping(chip->g1_phy_irq.domain, irq);
+		irq_dispose_mapping(virq);
+	}
+
+	irq_domain_remove(chip->g1_phy_irq.domain);
+
+	return err;
+}
+
+void mv88e6xxx_g1_phy_irq_free(struct mv88e6xxx_chip *chip)
+{
+	int irq, virq;
+
+	free_irq(chip->phy_int_irq, chip);
+	irq_dispose_mapping(chip->phy_int_irq);
+
+	for (irq = 0; irq < chip->g1_phy_irq.nirqs; irq++) {
+		virq = irq_find_mapping(chip->g1_phy_irq.domain, irq);
+		irq_dispose_mapping(virq);
+	}
+
+	irq_domain_remove(chip->g1_phy_irq.domain);
+}
+
+static int mv88e6xxx_g1_irq_mdio_setup(struct mv88e6xxx_chip *chip,
+				       struct mii_bus *bus)
+{
+	int phy, irq, err, err_phy;
+
+	for (phy = 0; phy < chip->info->num_internal_phys; phy++) {
+		irq = irq_find_mapping(chip->g1_phy_irq.domain, phy);
+		if (irq < 0) {
+			err = irq;
+			goto out;
+		}
+		bus->irq[chip->info->phy_base_addr + phy] = irq;
+	}
+	return 0;
+out:
+	err_phy = phy;
+
+	for (phy = 0; phy < err_phy; phy++)
+		irq_dispose_mapping(bus->irq[phy]);
+
+	return err;
+}
+
+void mv88e6xxx_g1_irq_mdio_free(struct mv88e6xxx_chip *chip,
+				struct mii_bus *bus)
+{
+	int phy;
+
+	for (phy = 0; phy < chip->info->num_internal_phys; phy++)
+		irq_dispose_mapping(bus->irq[phy]);
+}
+
 static int mv88e6xxx_g1_irq_setup(struct mv88e6xxx_chip *chip)
 {
 	static struct lock_class_key lock_key;
@@ -3909,7 +4094,10 @@ static int mv88e6xxx_mdio_register(struct mv88e6xxx_chip *chip,
 	bus->parent = chip->dev;
 
 	if (!external) {
-		err = mv88e6xxx_g2_irq_mdio_setup(chip, bus);
+		if (chip->info->use_g1_phy_irq)
+			err = mv88e6xxx_g1_irq_mdio_setup(chip, bus);
+		else
+			err = mv88e6xxx_g2_irq_mdio_setup(chip, bus);
 		if (err)
 			goto out;
 	}
@@ -3917,7 +4105,10 @@ static int mv88e6xxx_mdio_register(struct mv88e6xxx_chip *chip,
 	err = of_mdiobus_register(bus, np);
 	if (err) {
 		dev_err(chip->dev, "Cannot register MDIO bus (%d)\n", err);
-		mv88e6xxx_g2_irq_mdio_free(chip, bus);
+		if (chip->info->use_g1_phy_irq)
+			mv88e6xxx_g1_irq_mdio_free(chip, bus);
+		else
+			mv88e6xxx_g2_irq_mdio_free(chip, bus);
 		goto out;
 	}
 
@@ -3942,8 +4133,12 @@ static void mv88e6xxx_mdios_unregister(struct mv88e6xxx_chip *chip)
 	list_for_each_entry_safe(mdio_bus, p, &chip->mdios, list) {
 		bus = mdio_bus->bus;
 
-		if (!mdio_bus->external)
-			mv88e6xxx_g2_irq_mdio_free(chip, bus);
+		if (!mdio_bus->external) {
+			if (chip->info->use_g1_phy_irq)
+				mv88e6xxx_g1_irq_mdio_free(chip, bus);
+			else
+				mv88e6xxx_g2_irq_mdio_free(chip, bus);
+		}
 
 		mdiobus_unregister(bus);
 		mdiobus_free(bus);
@@ -5514,6 +5709,7 @@ static const struct mv88e6xxx_info mv88e6xxx_table[] = {
 		.age_time_coeff = 15000,
 		.g1_irqs = 8,
 		.g2_irqs = 10,
+		.use_g1_phy_irq = true,
 		.atu_move_port_mask = 0xf,
 		.pvt = true,
 		.multi_chip = true,
@@ -5557,6 +5753,7 @@ static const struct mv88e6xxx_info mv88e6xxx_table[] = {
 		.age_time_coeff = 15000,
 		.g1_irqs = 8,
 		.g2_irqs = 10,
+		.use_g1_phy_irq = true,
 		.atu_move_port_mask = 0xf,
 		.pvt = true,
 		.multi_chip = true,
@@ -7038,9 +7235,15 @@ static int mv88e6xxx_probe(struct mdio_device *mdiodev)
 	if (err)
 		goto out_g1_atu_prob_irq;
 
+	if (chip->info->use_g1_phy_irq) {
+		err = mv88e6xxx_g1_phy_irq_setup(chip);
+		if (err)
+			goto out_g1_vtu_prob_irq;
+	}
+
 	err = mv88e6xxx_mdios_register(chip, np);
 	if (err)
-		goto out_g1_vtu_prob_irq;
+		goto out_g1_phy_irq;
 
 	err = mv88e6xxx_register_switch(chip);
 	if (err)
@@ -7050,6 +7253,9 @@ static int mv88e6xxx_probe(struct mdio_device *mdiodev)
 
 out_mdio:
 	mv88e6xxx_mdios_unregister(chip);
+out_g1_phy_irq:
+	if (chip->info->use_g1_phy_irq)
+		mv88e6xxx_g1_phy_irq_free(chip);
 out_g1_vtu_prob_irq:
 	mv88e6xxx_g1_vtu_prob_irq_free(chip);
 out_g1_atu_prob_irq:
@@ -7098,6 +7304,9 @@ static void mv88e6xxx_remove(struct mdio_device *mdiodev)
 		mv88e6xxx_g1_irq_free(chip);
 	else
 		mv88e6xxx_irq_poll_free(chip);
+
+	if (chip->info->use_g1_phy_irq)
+		mv88e6xxx_g1_phy_irq_free(chip);
 
 	dev_set_drvdata(&mdiodev->dev, NULL);
 }

@@ -139,6 +139,7 @@ struct mv88e6xxx_info {
 	unsigned int age_time_coeff;
 	unsigned int g1_irqs;
 	unsigned int g2_irqs;
+	bool use_g1_phy_irq;
 	bool pvt;
 
 	/* Mark certain ports as invalid. This is required for example for the
@@ -362,6 +363,7 @@ struct mv88e6xxx_chip {
 	 * off a GPIO as interrupt source
 	 */
 	struct mv88e6xxx_irq g1_irq;
+	struct mv88e6xxx_irq g1_phy_irq;
 	struct mv88e6xxx_irq g2_irq;
 	int irq;
 	char irq_name[64];
@@ -374,6 +376,8 @@ struct mv88e6xxx_chip {
 	char atu_prob_irq_name[64];
 	int vtu_prob_irq;
 	char vtu_prob_irq_name[64];
+	int phy_int_irq;
+	char phy_int_irq_name[64];
 	struct kthread_worker *kworker;
 	struct kthread_delayed_work irq_poll_work;
 
