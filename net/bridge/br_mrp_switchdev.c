@@ -21,7 +21,7 @@ br_mrp_switchdev_port_obj(struct net_bridge *br,
 	if (!err)
 		return BR_MRP_HW;
 
-	if (err != -EOPNOTSUPP)
+	if (err != -EOPNOTSUPP && err != -EAGAIN)
 		return BR_MRP_NONE;
 
 	/* Continue with SW backup */
