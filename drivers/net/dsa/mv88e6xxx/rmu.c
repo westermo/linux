@@ -117,7 +117,6 @@ static int mv88e6xxx_rmu_tx(struct mv88e6xxx_chip *chip, int port,
 	const struct dsa_port *dp;
 	unsigned char *data;
 	struct sk_buff *skb;
-	int ret;
 
 	dp = dsa_to_port(chip->ds, port);
 	if (!dp || !dp->cpu_dp)
@@ -140,11 +139,7 @@ static int mv88e6xxx_rmu_tx(struct mv88e6xxx_chip *chip, int port,
 	data = skb_put(skb, len);
 	memcpy(data, msg, len);
 
-	ret = tag_ops->inband_xmit(skb, dp->slave, ++chip->rmu.seq_no);
-	if (ret)
-		netdev_err(chip->rmu.netdev, "RMU: Error sending request (%d)", ret);
-
-	return ret;
+	return tag_ops->inband_xmit(skb, dp->slave, ++chip->rmu.seq_no);
 }
 
 static int mv88e6xxx_rmu_send_wait(struct mv88e6xxx_chip *chip, int port,
@@ -165,6 +160,12 @@ static int mv88e6xxx_rmu_send_wait(struct mv88e6xxx_chip *chip, int port,
 	chip->rmu.request_cmd = request;
 
 	ret = mv88e6xxx_rmu_tx(chip, port, msg, len);
+	if (ret == -ENODEV) {
+		/* Device not ready yet? Try again later */
+		ret = 0;
+		goto out;
+	}
+
 	if (ret) {
 		dev_err(chip->dev, "RMU: Error transmitting request (%d)", ret);
 		goto out;

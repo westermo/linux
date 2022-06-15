@@ -132,10 +132,14 @@ static int dsa_inband_xmit_ll(struct sk_buff *skb, struct net_device *dev, const
 			      int header_len, int seq_no)
 {
 	static const u8 dest_addr[ETH_ALEN] = {0x01, 0x50, 0x43, 0x00, 0x00, 0x00};
-	struct dsa_port *dp = dsa_slave_to_port(dev);
+	struct dsa_port *dp;
 	struct ethhdr *eth;
 	u8 *data;
 
+	if (!dev)
+		return -ENODEV;
+
+	dp = dsa_slave_to_port(dev);
 	if (!dp)
 		return -ENODEV;
 

@@ -4107,7 +4107,7 @@ static int mv88e6xxx_stats_wrap_setup(struct mv88e6xxx_chip *chip)
 		get_random_bytes(&rand, sizeof(rand));
 		INIT_DELAYED_WORK(&prt->stats.work, mv88e6xxx_stats_work);
 		/* Randomize first run to spread out poll work */
-		queue_delayed_work(system_wq, &prt->stats.work, rand % prt->stats.max_delay);
+		queue_delayed_work(system_wq, &prt->stats.work, prt->stats.max_delay - (rand % (20 * HZ)));
 	}
 
 	return 0;
