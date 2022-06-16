@@ -702,8 +702,15 @@ int br_mrp_set_ring_state(struct net_bridge *br,
 	if (!mrp)
 		return -EINVAL;
 
-	if (mrp->ring_state != state->ring_state)
+	if (mrp->ring_state != state->ring_state) {
 		mrp->ring_transitions++;
+
+		/* If the ring state changes to closed from any other state,
+		 * ensure that the test_count_miss is reset back to 0. */
+		if (state->ring_state == BR_MRP_RING_STATE_CLOSED &&
+		    mrp->test_count_miss >= mrp->test_max_miss)
+			mrp->test_count_miss = 0;
+	}
 
 	mrp->ring_state = state->ring_state;
 
