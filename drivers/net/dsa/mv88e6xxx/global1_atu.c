@@ -253,6 +253,7 @@ static int mv88e6xxx_g1_atu_mac_write(struct mv88e6xxx_chip *chip,
 int mv88e6xxx_g1_atu_getnext(struct mv88e6xxx_chip *chip, u16 fid,
 			     struct mv88e6xxx_atu_entry *entry)
 {
+	u16 ctl;
 	int err;
 
 	err = mv88e6xxx_g1_atu_op_wait(chip);
@@ -270,6 +271,17 @@ int mv88e6xxx_g1_atu_getnext(struct mv88e6xxx_chip *chip, u16 fid,
 	if (err)
 		return err;
 
+	err = mv88e6xxx_g1_read(chip, MV88E6XXX_G1_ATU_CTL,
+						&ctl);
+	if (err)
+		return err;
+
+	entry->mac_qpri = (ctl & MV88E6XXX_G1_ATU_OP_MAC_QPRI_MASK) >>
+		__bf_shf(MV88E6XXX_G1_ATU_OP_MAC_QPRI_MASK);
+
+	entry->mac_fpri = (ctl & MV88E6XXX_G1_ATU_OP_MAC_FPRI_MASK) >>
+		__bf_shf(MV88E6XXX_G1_ATU_OP_MAC_FPRI_MASK);
+
 	err = mv88e6xxx_g1_atu_data_read(chip, entry);
 	if (err)
 		return err;
@@ -281,6 +293,7 @@ int mv88e6xxx_g1_atu_loadpurge(struct mv88e6xxx_chip *chip, u16 fid,
 			       struct mv88e6xxx_atu_entry *entry)
 {
 	int err;
+	u16 data;
 
 	err = mv88e6xxx_g1_atu_op_wait(chip);
 	if (err)
@@ -294,7 +307,10 @@ int mv88e6xxx_g1_atu_loadpurge(struct mv88e6xxx_chip *chip, u16 fid,
 	if (err)
 		return err;
 
-	return mv88e6xxx_g1_atu_op(chip, fid, MV88E6XXX_G1_ATU_OP_LOAD_DB);
+	data = entry->mac_qpri << __bf_shf(MV88E6XXX_G1_ATU_OP_MAC_QPRI_MASK) |
+		entry->mac_fpri << __bf_shf(MV88E6XXX_G1_ATU_OP_MAC_FPRI_MASK);
+
+	return mv88e6xxx_g1_atu_op(chip, fid, data | MV88E6XXX_G1_ATU_OP_LOAD_DB);
 }
 
 static int mv88e6xxx_g1_atu_flushmove(struct mv88e6xxx_chip *chip, u16 fid,

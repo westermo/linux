@@ -179,6 +179,8 @@ struct mv88e6xxx_atu_entry {
 	bool	trunk;
 	u16	portvec;
 	u8	mac[ETH_ALEN];
+	u8	mac_qpri;
+	u8	mac_fpri;
 };
 
 struct mv88e6xxx_vtu_entry {
@@ -329,6 +331,14 @@ struct mv88e6xxx_mst {
 	struct mv88e6xxx_stu_entry stu;
 };
 
+struct mv88e6xxx_mac_prio {
+	struct list_head node;
+
+	unsigned char dst[ETH_ALEN];
+	u16 vid;
+	u8 prio;
+};
+
 enum mv88e6xxx_key_type {
 	MV88E6XXX_KEY_PORT_PRIO,
 	MV88E6XXX_KEY_VLAN_PCP,
@@ -346,6 +356,13 @@ enum mv88e6xxx_key_type {
 
 struct mv88e6xxx_key {
 	enum mv88e6xxx_key_type type;
+	unsigned char dst[ETH_ALEN];
+};
+
+struct mac_pri_t {
+	u8 active;
+	unsigned mgmt : 1;
+	unsigned pri : 7;
 };
 
 enum mv88e6xxx_rule_type {
@@ -356,6 +373,7 @@ enum mv88e6xxx_rule_type {
 	MV88E6XXX_RULE_ALL_MC_MAC_POLICE,
 	MV88E6XXX_RULE_U_UC_MAC_POLICE,
 	MV88E6XXX_RULE_ALL_MAC_POLICE,
+	MV88E6XXX_RULE_MAC_PRIO
 };
 
 struct mv88e6xxx_rule {
@@ -365,6 +383,7 @@ struct mv88e6xxx_rule {
 	enum mv88e6xxx_rule_type type;
 
 	union {
+		struct mac_pri_t mac_pri;
 	};
 };
 

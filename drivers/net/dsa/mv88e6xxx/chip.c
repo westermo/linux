@@ -2398,6 +2398,26 @@ unlock:
 	return err;
 }
 
+static const struct mac_pri_t *
+mv88e6xxx_mac_prio_get(struct mv88e6xxx_chip *chip,
+		       const unsigned char *mac)
+{
+	struct mv88e6xxx_rule *rule;
+
+	list_for_each_entry(rule, &chip->flow_block.rules, list) {
+		if (rule->type == MV88E6XXX_RULE_MAC_PRIO &&
+			ether_addr_equal(rule->key.dst, mac) &&
+			rule->mac_pri.active) {
+			dev_dbg(chip->dev, "@@@ mac %pM - entry found\n", mac);
+			return &rule->mac_pri;
+		}
+	}
+
+	dev_dbg(chip->dev, "@@@ mac %pM - Not found\n", mac);
+
+	return NULL;
+}
+
 static int
 mv88e6xxx_port_vlan_prepare(struct dsa_switch *ds, int port,
 			    const struct switchdev_obj_port_vlan *vlan)
@@ -2468,7 +2488,28 @@ static int mv88e6xxx_port_db_load_purge(struct mv88e6xxx_chip *chip, int port,
 		if (!entry.portvec)
 			entry.state = 0;
 	} else {
-		if (state == MV88E6XXX_G1_ATU_DATA_STATE_UC_STATIC)
+		const struct mac_pri_t *mac_pri;
+
+		mac_pri = mv88e6xxx_mac_prio_get(chip, addr);
+
+		if (mac_pri && mac_pri->active) {
+			entry.mac_qpri = mac_pri->pri;
+			entry.mac_fpri = mac_pri->pri;
+			state = mac_pri->mgmt ?
+				MV88E6XXX_G1_ATU_DATA_STATE_MC_STATIC_DA_MGMT_PO :
+				MV88E6XXX_G1_ATU_DATA_STATE_MC_STATIC_PO;
+		} else {
+			entry.mac_qpri = 0;
+			entry.mac_fpri = 0;
+		}
+
+		/*
+		 * Check the address type also because
+		 * MV88E6XXX_G1_ATU_DATA_STATE_UC_STATIC and
+		 * MV88E6XXX_G1_ATU_DATA_STATE_MC_STATIC_DA_MGMT_PO are equals.
+		 */
+		if ((state == MV88E6XXX_G1_ATU_DATA_STATE_UC_STATIC) &&
+		    !is_multicast_ether_addr(addr))
 			entry.portvec = BIT(port);
 		else
 			entry.portvec |= BIT(port);
@@ -7645,16 +7686,20 @@ static int mv88e6xxx_flower_parse_key(struct flow_cls_offload *cls,
 			goto out;
 		}
 
-		if (is_multicast_ether_addr(match.key->dst) &&
-		    ether_addr_equal(match.mask->dst, _mask)) {
-			key->type = MV88E6XXX_KEY_ALL_MC_MAC;
-		        goto out;
+		if (is_multicast_ether_addr(match.key->dst)) {
+			if (ether_addr_equal(match.mask->dst, _mask)) {
+				key->type = MV88E6XXX_KEY_ALL_MC_MAC;
+			} else {
+				memcpy(key->dst, match.key->dst, sizeof(key->dst));
+				key->type = MV88E6XXX_KEY_MC_MAC;
+			}
+			goto out;
 		}
 
 		if (ether_addr_equal(match.key->dst, uc) &&
 		    ether_addr_equal(match.mask->dst, _mask)) {
 			key->type = MV88E6XXX_KEY_U_UC_MAC;
-		        goto out;
+			goto out;
 		}
 	}
 
@@ -7733,6 +7778,42 @@ static int mv88e6xxx_setup_port_priority(struct dsa_switch *ds,
 	return err;
 }
 
+static int mv88e6xxx_mac_prio_add(struct dsa_switch *ds,
+				  struct mv88e6xxx_key *key,
+				  unsigned long cookie,
+				  const struct flow_action_entry *act,
+				  int trap)
+{
+	struct mv88e6xxx_chip *chip = ds->priv;
+	struct mv88e6xxx_rule *rule = mv88e6xxx_rule_find(chip, cookie);
+	int new_rule = 0;
+
+	if (!rule) {
+		rule = kzalloc(sizeof(*rule), GFP_KERNEL);
+		if (!rule)
+			return -ENOMEM;
+
+		rule->cookie = cookie;
+		new_rule = 1;
+	}
+
+	rule->type = MV88E6XXX_RULE_MAC_PRIO;
+	rule->mac_pri.pri = act->vlan.prio;
+	rule->mac_pri.mgmt = trap;
+	rule->mac_pri.active = 1;
+
+	memcpy(&rule->key, key, sizeof(rule->key));
+
+	dev_dbg(chip->dev, "@@@ Add mac %pM, prio: %d, mgmt: %d\n",
+		key->dst,
+		rule->mac_pri.pri, rule->mac_pri.mgmt);
+
+	if (new_rule)
+		list_add(&rule->list, &chip->flow_block.rules);
+
+	return 0;
+}
+
 static int mv88e6xxx_flower_action_parse_and_apply(struct dsa_switch *ds,
 						   int port,
 						   struct netlink_ext_ack *extack,
@@ -7756,6 +7837,13 @@ static int mv88e6xxx_flower_action_parse_and_apply(struct dsa_switch *ds,
 			key->type = MV88E6XXX_KEY_PORT_PRIO;
 		err = mv88e6xxx_setup_port_priority(ds, port, extack,
 						    cookie, key, act);
+		break;
+	case FLOW_ACTION_VLAN_PUSH:
+		if (key->type == MV88E6XXX_KEY_MC_MAC) {
+			int trap = !!((flow_action->num_entries > 1) &&
+						(flow_action->entries[1].id == FLOW_ACTION_TRAP));
+			err = mv88e6xxx_mac_prio_add(ds, key, cookie, act, trap);
+		}
 		break;
 	case FLOW_ACTION_POLICE:
 		err = mv88e6xxx_setup_port_policer(ds, port, extack,
@@ -7814,6 +7902,11 @@ int mv88e6xxx_cls_flower_del(struct dsa_switch *ds, int port,
 						       rule->key.type, 0, 0);
 		else
 			err = -EOPNOTSUPP;
+		break;
+	case MV88E6XXX_RULE_MAC_PRIO:
+		dev_dbg(chip->dev, "@@@ Disable prio: %d, mac %pM\n",
+			rule->mac_pri.pri, rule->key.dst);
+		rule->mac_pri.active = 0;
 		break;
 	default:
 		err = -EINVAL;
