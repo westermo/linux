@@ -682,20 +682,29 @@ void br_multicast_del_pg(struct net_bridge_mdb_entry *mp,
 	struct net_bridge *br = pg->key.port->br;
 	struct net_bridge_group_src *ent;
 	struct hlist_node *tmp;
+	struct net_bridge_mcast *brmctx;
 
 	rcu_assign_pointer(*pp, pg->next);
 	hlist_del_init(&pg->mglist);
-	br_multicast_eht_clean_sets(pg);
-	hlist_for_each_entry_safe(ent, tmp, &pg->src_list, node)
+
+	brmctx = br_mdb_choose_context(br, mp->addr.vid, NULL);
+	if (!brmctx)
+		return;
+
+	if (br_multicast_should_handle_mode(brmctx, mp->addr.proto)) {
+		br_multicast_eht_clean_sets(pg);
+		hlist_for_each_entry_safe(ent, tmp, &pg->src_list, node)
 		br_multicast_del_group_src(ent, false);
-	br_mdb_notify(br->dev, mp, pg, RTM_DELMDB);
-	if (!br_multicast_is_star_g(&mp->addr)) {
-		rhashtable_remove_fast(&br->sg_port_tbl, &pg->rhnode,
-				       br_sg_port_rht_params);
-		br_multicast_sg_del_exclude_ports(mp);
-	} else {
-		br_multicast_star_g_handle_mode(pg, MCAST_INCLUDE);
+		if (!br_multicast_is_star_g(&mp->addr)) {
+			rhashtable_remove_fast(&br->sg_port_tbl, &pg->rhnode,
+					       br_sg_port_rht_params);
+			br_multicast_sg_del_exclude_ports(mp);
+		} else {
+			br_multicast_star_g_handle_mode(pg, MCAST_INCLUDE);
+		}
 	}
+
+	br_mdb_notify(br->dev, mp, pg, RTM_DELMDB);
 	hlist_add_head(&pg->mcast_gc.gc_node, &br->mcast_gc_list);
 	queue_work(system_long_wq, &br->mcast_gc_work);
 
@@ -1281,6 +1290,7 @@ struct net_bridge_port_group *br_multicast_new_port_group(
 			u8 rt_protocol)
 {
 	struct net_bridge_port_group *p;
+	const struct net_bridge_mcast *brmctx;
 
 	p = kzalloc(sizeof(*p), GFP_ATOMIC);
 	if (unlikely(!p))
@@ -1296,11 +1306,17 @@ struct net_bridge_port_group *br_multicast_new_port_group(
 	p->mcast_gc.destroy = br_multicast_destroy_port_group;
 	INIT_HLIST_HEAD(&p->src_list);
 
-	if (!br_multicast_is_star_g(group) &&
-	    rhashtable_lookup_insert_fast(&port->br->sg_port_tbl, &p->rhnode,
-					  br_sg_port_rht_params)) {
-		kfree(p);
+	brmctx = br_mdb_choose_context(port->br, p->key.addr.vid, NULL);
+	if (!brmctx)
 		return NULL;
+
+	if (br_multicast_should_handle_mode(brmctx, p->key.addr.proto)) {
+		if (!br_multicast_is_star_g(group) &&
+		    rhashtable_lookup_insert_fast(&port->br->sg_port_tbl, &p->rhnode,
+					  br_sg_port_rht_params)) {
+			kfree(p);
+			return NULL;
+		}
 	}
 
 	rcu_assign_pointer(p->next, next);

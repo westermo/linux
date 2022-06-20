@@ -942,6 +942,10 @@ void br_multicast_uninit_stats(struct net_bridge *br);
 void br_multicast_get_stats(const struct net_bridge *br,
 			    const struct net_bridge_port *p,
 			    struct br_mcast_stats *dest);
+struct net_bridge_mcast *
+br_mdb_choose_context(struct net_bridge *br,
+		      u16 vid,
+		      struct netlink_ext_ack *extack);
 void br_mdb_init(void);
 void br_mdb_uninit(void);
 void br_multicast_host_join(const struct net_bridge_mcast *brmctx,

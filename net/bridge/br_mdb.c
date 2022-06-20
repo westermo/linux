@@ -821,10 +821,10 @@ static int br_mdb_parse(struct sk_buff *skb, struct nlmsghdr *nlh,
 	return 0;
 }
 
-static struct net_bridge_mcast *
-__br_mdb_choose_context(struct net_bridge *br,
-			const struct br_mdb_entry *entry,
-			struct netlink_ext_ack *extack)
+struct net_bridge_mcast *
+br_mdb_choose_context(struct net_bridge *br,
+		      u16 vid,
+		      struct netlink_ext_ack *extack)
 {
 	struct net_bridge_mcast *brmctx = NULL;
 	struct net_bridge_vlan *v;
@@ -834,12 +834,12 @@ __br_mdb_choose_context(struct net_bridge *br,
 		goto out;
 	}
 
-	if (!entry->vid) {
-		NL_SET_ERR_MSG_MOD(extack, "Cannot add an entry without a vlan when vlan snooping is enabled");
+	if (!vid) {
+		NL_SET_ERR_MSG_MOD(extack, "Vlan id is needed to get an mdb context when vlan snooping is enabled");
 		goto out;
 	}
 
-	v = br_vlan_find(br_vlan_group(br), entry->vid);
+	v = br_vlan_find(br_vlan_group(br), vid);
 	if (!v) {
 		NL_SET_ERR_MSG_MOD(extack, "Vlan is not configured");
 		goto out;
@@ -870,7 +870,7 @@ static int br_mdb_add_group(struct net_bridge *br, struct net_bridge_port *port,
 
 	__mdb_entry_to_br_ip(entry, &group, mdb_attrs);
 
-	brmctx = __br_mdb_choose_context(br, entry, extack);
+	brmctx = br_mdb_choose_context(br, entry->vid, extack);
 	if (!brmctx)
 		return -EINVAL;
 
