@@ -1127,6 +1127,26 @@ bool dsa_folded_mdb_port_is_router(const struct dsa_port *dp)
 }
 EXPORT_SYMBOL_GPL(dsa_folded_mdb_port_is_router);
 
+static const u8 eth_frnt_mc_base[ETH_ALEN] __aligned(2) =
+{ 0x01, 0x00, 0x5e, 0x05, 0x0a, 0x00 };
+static const u8 eth_frnt_mc_mask[ETH_ALEN] __aligned(2) =
+{ 0xff, 0xff, 0xff, 0xff, 0xff, 0x00 };
+
+static int dsa_fdb_mcgroup_is_frnt(const u8 *addr, u16 vid)
+{
+	switch (vid) {
+	case 4020:
+	case 4021:
+	case 4022:
+	case 4032:
+	case 4033:
+		return ether_addr_equal_masked(addr, eth_frnt_mc_base,
+					       eth_frnt_mc_mask);
+	}
+
+	return 0;
+}
+
 static bool dsa_folded_mdb_should_track(const struct dsa_port *dp,
 					const struct switchdev_obj_port_mdb *mdb)
 {
@@ -1134,6 +1154,11 @@ static bool dsa_folded_mdb_should_track(const struct dsa_port *dp,
 		/* Driver manages multicast router ports without our
 		 * involvement.
 		 */
+		return false;
+
+	/* unfortunately FRNTv0 uses MAC addresses in the IPv4
+	 * multicast range, so we need a special check for them. */
+	if (dsa_fdb_mcgroup_is_frnt(mdb->addr, mdb->vid))
 		return false;
 
 	if (!ether_addr_is_ip_mcast(mdb->addr))
