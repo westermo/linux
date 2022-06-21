@@ -1506,7 +1506,8 @@ static int mv88e6xxx_stats_get_stats(struct mv88e6xxx_chip *chip, int port,
 	for (i = 0, j = 0; i < ARRAY_SIZE(mv88e6xxx_hw_stats); i++) {
 		stat = &mv88e6xxx_hw_stats[i];
 		if (stat->type & types) {
-			if (chip->rmu.ops->get_rmon && !(stat->type & STATS_TYPE_PORT)) {
+			if (dsa_is_user_port(chip->ds, port) &&
+			    chip->rmu.ops->get_rmon && !(stat->type & STATS_TYPE_PORT)) {
 				if (stat->type & STATS_TYPE_BANK1)
 					offset = 32;
 
@@ -1603,7 +1604,8 @@ static void mv88e6xxx_update_ethtool_stats(struct mv88e6xxx_port *mv_port)
 
 	memset(&stats_new, 0, sizeof(stats_new));
 
-	if (chip->rmu.ops && chip->rmu.ops->get_rmon) {
+	if (dsa_is_user_port(chip->ds, mv_port->port) &&
+	    chip->rmu.ops && chip->rmu.ops->get_rmon) {
 		ret = chip->rmu.ops->get_rmon(chip, mv_port->port, stats_new);
 		if (ret == -ETIMEDOUT)
 			return;
@@ -4094,7 +4096,8 @@ static int mv88e6xxx_stats_wrap_setup(struct mv88e6xxx_chip *chip)
 
 		prt = &chip->ports[port];
 
-		if (!dsa_is_user_port(chip->ds, port))
+		if (!(dsa_is_user_port(chip->ds, port) ||
+		      dsa_is_cpu_port(chip->ds, port)))
 			continue;
 
 		memset(&prt->stats.carry, 0, sizeof(struct mv88e6xxx_stats_cntr));
