@@ -3493,10 +3493,11 @@ static int mv88e6xxx_setup_port(struct mv88e6xxx_chip *chip, int port)
 		return err;
 
 	/* Port Control: disable Drop-on-Unlock, disable Drop-on-Lock,
-	 * disable Header mode, enable IGMP/MLD snooping, disable VLAN
-	 * tunneling, determine priority by looking at 802.1p and IP
-	 * priority fields (IP prio has precedence), and set STP state
-	 * to Forwarding.
+	 * disable Header mode, disable VLAN tunneling, determine
+	 * priority by looking at 802.1p and IP priority fields (IP
+	 * prio has precedence), and set STP state to Forwarding.
+	 *
+	 * If this is a user port, enable IGMP/MLD snooping.
 	 *
 	 * If this is the CPU link, use DSA or EDSA tagging depending
 	 * on which tagging mode was configured.
@@ -3506,9 +3507,12 @@ static int mv88e6xxx_setup_port(struct mv88e6xxx_chip *chip, int port)
 	 * If this is the upstream port for this switch, enable
 	 * forwarding of unknown unicasts and multicasts.
 	 */
-	reg = MV88E6XXX_PORT_CTL0_IGMP_MLD_SNOOP |
-		MV88E6185_PORT_CTL0_USE_TAG | MV88E6185_PORT_CTL0_USE_IP |
+	reg = MV88E6185_PORT_CTL0_USE_TAG | MV88E6185_PORT_CTL0_USE_IP |
 		MV88E6XXX_PORT_CTL0_STATE_FORWARDING;
+
+	if (dsa_is_user_port(ds, port))
+		reg |= MV88E6XXX_PORT_CTL0_IGMP_MLD_SNOOP;
+
 	err = mv88e6xxx_port_write(chip, port, MV88E6XXX_PORT_CTL0, reg);
 	if (err)
 		return err;
