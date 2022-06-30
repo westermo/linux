@@ -402,6 +402,7 @@ struct net_bridge_port {
 	int				hwdom;
 	int				offload_count;
 	struct netdev_phys_item_id	ppid;
+	atomic_t			mrouter_cnt;
 #endif
 	u16				group_fwd_mask;
 	u16				backup_redirected_cnt;

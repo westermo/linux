@@ -439,6 +439,9 @@ static struct net_bridge_port *new_nbp(struct net_bridge *br,
 		p = ERR_PTR(err);
 	}
 
+#ifdef CONFIG_NET_SWITCHDEV
+	atomic_set(&p->mrouter_cnt, 0);
+#endif
 	return p;
 }
 

@@ -3055,6 +3055,10 @@ static void br_port_mc_router_state_change(struct net_bridge_port *p,
 		.u.mrouter = is_mc_router,
 	};
 
+	if ((is_mc_router && (atomic_inc_return(&p->mrouter_cnt) > 1)) ||
+	    (!is_mc_router && (atomic_dec_return(&p->mrouter_cnt) > 0)))
+		return;
+
 	switchdev_port_attr_set(p->dev, &attr, NULL);
 }
 
