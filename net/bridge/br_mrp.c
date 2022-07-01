@@ -634,6 +634,7 @@ int br_mrp_set_port_state(struct net_bridge_port *p,
 			  enum br_mrp_port_state_type state)
 {
 	u32 port_state;
+	int err;
 
 	if (!p || !(p->flags & BR_MRP_AWARE))
 		return -EINVAL;
@@ -655,6 +656,17 @@ int br_mrp_set_port_state(struct net_bridge_port *p,
 	 * handled in the stp code. So when MRP changes that state of a port
 	 * here we notify the. */
 	br_port_state_selection(p->br);
+
+	/* Another workaround because of the port MRP_AWARE indicator, that will
+	 * not allow this code to be reached normally as it would in the
+	 * br_set_state in the stp code. */
+	if (br_opt_get(p->br, BROPT_MST_ENABLED)) {
+		err = br_mst_set_state(p, 0, port_state, NULL);
+		if (err)
+			br_warn(p->br,
+				"error setting MST state on port %u(%s)\n",
+				p->port_no, netdev_name(p->dev));
+	}
 
 	return 0;
 }
