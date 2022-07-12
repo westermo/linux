@@ -807,6 +807,7 @@ static const char * const mv88e6xxx_port_state_names[] = {
 int mv88e6xxx_port_set_state(struct mv88e6xxx_chip *chip, int port, u8 state)
 {
 	u16 reg;
+	u16 ctl1;
 	int err;
 
 	err = mv88e6xxx_port_read(chip, port, MV88E6XXX_PORT_CTL0, &reg);
@@ -817,7 +818,13 @@ int mv88e6xxx_port_set_state(struct mv88e6xxx_chip *chip, int port, u8 state)
 
 	switch (state) {
 	case BR_STATE_DISABLED:
-		state = MV88E6XXX_PORT_CTL0_STATE_DISABLED;
+		/* Check if the port is added to a lag */
+		err = mv88e6xxx_port_read(chip, port, MV88E6XXX_PORT_CTL1, &ctl1);
+		if (err)
+			return err;
+		state = (ctl1 & MV88E6XXX_PORT_CTL1_TRUNK_PORT) ?
+			MV88E6XXX_PORT_CTL0_STATE_BLOCKING :
+			MV88E6XXX_PORT_CTL0_STATE_DISABLED;
 		break;
 	case BR_STATE_BLOCKING:
 	case BR_STATE_LISTENING:
