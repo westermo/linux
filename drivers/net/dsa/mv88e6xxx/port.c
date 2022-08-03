@@ -625,7 +625,7 @@ static int mv88e6xxx_port_set_cmode(struct mv88e6xxx_chip *chip, int port,
 		}
 
 		/* Need to wait until serdes is stable before we set cmode */
-		usleep_range(10000, 20000);
+		usleep_range(30000, 40000);
 
 		err = mv88e6xxx_port_write(chip, port, MV88E6XXX_PORT_STS, reg);
 		if (err)
