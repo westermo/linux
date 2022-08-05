@@ -824,12 +824,30 @@ bool dsa_port_skip_vlan_configuration(struct dsa_port *dp)
 	return !ds->configure_vlan_while_not_filtering && !br_vlan_enabled(br);
 }
 
+static unsigned int dsa_switch_fastest_ageing_time(struct dsa_port *dp,
+						unsigned int ageing_time)
+{
+	struct dsa_port *dsa_port;
+
+	dsa_switch_for_each_port(dsa_port, dp->ds) {
+		if (dsa_port->bridge && !dsa_port_bridge_same(dsa_port, dp)) {
+			if (dsa_port->ageing_time < ageing_time)
+				ageing_time = dsa_port->ageing_time;
+		}
+	}
+
+	return ageing_time;
+}
+
 int dsa_port_ageing_time(struct dsa_port *dp, clock_t ageing_clock)
 {
 	unsigned long ageing_jiffies = clock_t_to_jiffies(ageing_clock);
 	unsigned int ageing_time = jiffies_to_msecs(ageing_jiffies);
 	struct dsa_notifier_ageing_time_info info;
 	int err;
+
+	/* Program the fastest ageing time in case of multiple bridges */
+	ageing_time = dsa_switch_fastest_ageing_time(dp, ageing_time);
 
 	info.ageing_time = ageing_time;
 
