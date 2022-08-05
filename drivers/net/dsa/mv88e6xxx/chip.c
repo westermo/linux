@@ -3680,6 +3680,18 @@ static int mv88e6xxx_setup_port(struct mv88e6xxx_chip *chip, int port)
 		}
 	}
 
+	/* Enable DHCP Snooping on all user ports, by performing a trap on any
+         * DHCP frame. This will cause all DHCP frames to be handled in SW, even
+         * those we may simply want to just forward. */
+	if (dsa_is_user_port(ds, port) &&
+	    chip->info->ops->port_set_policy) {
+		err = chip->info->ops->port_set_policy(
+			chip, port, MV88E6XXX_POLICY_MAPPING_OPT82,
+			MV88E6XXX_POLICY_ACTION_TRAP);
+		if (err)
+			return err;
+	}
+
 	/* Port based VLAN map: give each port the same default address
 	 * database, and allow bidirectional communication between the
 	 * CPU and DSA port(s), and the other ports.
