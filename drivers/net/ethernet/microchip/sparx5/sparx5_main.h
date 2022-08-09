@@ -216,6 +216,15 @@ struct sparx5_skb_cb {
 	unsigned long jiffies;
 };
 
+struct sparx5_mdb_entry {
+	struct list_head list;
+	unsigned char addr[ETH_ALEN];
+	u16 vid;
+	DECLARE_BITMAP(port_mask, SPX5_PORTS);
+	bool cpu_copy;
+	u16 pgid_idx;
+};
+
 #define SPARX5_PTP_TIMEOUT		msecs_to_jiffies(10)
 #define SPARX5_SKB_CB(skb) \
 	((struct sparx5_skb_cb *)((skb)->cb))
@@ -257,6 +266,10 @@ struct sparx5 {
 	struct list_head mact_entries;
 	/* mac table list (mact_entries) mutex */
 	struct mutex mact_lock;
+	/* SW MDB table */
+	struct list_head mdb_entries;
+	/* mdb list mutex */
+	struct mutex mdb_lock;
 	struct delayed_work mact_work;
 	struct workqueue_struct *mact_queue;
 	/* Board specifics */
