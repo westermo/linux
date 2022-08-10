@@ -62,7 +62,7 @@ static long long __init check_squashfs_chain(struct file *file, int start_block)
 {
 	unsigned char *buf;
 	long long tot = 0;
-	int i;
+	int i, ret;
 
 	buf = kmalloc(sizeof(struct squashfs_super_block), GFP_KERNEL);
 	if (!buf)
@@ -75,7 +75,10 @@ static long long __init check_squashfs_chain(struct file *file, int start_block)
 		loff_t pos;
 
 		pos = start_block * BLOCK_SIZE + tot;
-		kernel_read(file, buf, sizeof(struct squashfs_super_block), &pos);
+		ret = kernel_read(file, buf, sizeof(struct squashfs_super_block), &pos);
+		if (ret <= 0)
+			break;
+
 		sb = (struct squashfs_super_block *) buf;
 
 		if (le32_to_cpu(sb->s_magic) != SQUASHFS_MAGIC)
