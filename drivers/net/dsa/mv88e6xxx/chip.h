@@ -363,6 +363,8 @@ enum mv88e6xxx_key_type {
 struct mv88e6xxx_key {
 	enum mv88e6xxx_key_type type;
 	unsigned char dst[ETH_ALEN];
+	unsigned char src[ETH_ALEN];
+	u16 vid;
 };
 
 struct mac_pri_t {
@@ -379,7 +381,8 @@ enum mv88e6xxx_rule_type {
 	MV88E6XXX_RULE_ALL_MC_MAC_POLICE,
 	MV88E6XXX_RULE_U_UC_MAC_POLICE,
 	MV88E6XXX_RULE_ALL_MAC_POLICE,
-	MV88E6XXX_RULE_MAC_PRIO
+	MV88E6XXX_RULE_MAC_PRIO,
+	MV88E6XXX_RULE_RXNFC
 };
 
 struct mv88e6xxx_rule {
@@ -390,6 +393,7 @@ struct mv88e6xxx_rule {
 
 	union {
 		struct mac_pri_t mac_pri;
+		struct mv88e6xxx_policy policy;
 	};
 };
 

@@ -7585,9 +7585,9 @@ static int mv88e6xxx_crosschip_lag_leave(struct dsa_switch *ds, int sw_index,
 struct mv88e6xxx_rule *mv88e6xxx_rule_find(struct mv88e6xxx_chip *chip,
 					   unsigned long cookie)
 {
-	struct mv88e6xxx_rule *rule;
+	struct mv88e6xxx_rule *rule, *tmp;
 
-	list_for_each_entry(rule, &chip->flow_block.rules, list)
+	list_for_each_entry_safe(rule, tmp, &chip->flow_block.rules, list)
 		if (rule->cookie == cookie)
 			return rule;
 
@@ -7702,32 +7702,32 @@ static int mv88e6xxx_flower_parse_key(struct flow_cls_offload *cls,
 	}
 
 	key->type = MV88E6XXX_KEY_UNSPEC;
+	eth_zero_addr(key->dst);
+	eth_zero_addr(key->src);
 
 	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_ETH_ADDRS)) {
 		struct flow_match_eth_addrs match;
 
 		flow_rule_match_eth_addrs(rule, &match);
 
-		if (is_broadcast_ether_addr(match.key->dst)) {
+		if (!ether_addr_equal(match.key->dst, uc))
+			ether_addr_copy(key->dst, match.key->dst);
+		else if (!ether_addr_equal(match.key->src, uc))
+			ether_addr_copy(key->src, match.key->src);
+
+		if (is_broadcast_ether_addr(match.key->dst))
 			key->type = MV88E6XXX_KEY_BC_MAC;
-			goto out;
-		}
 
 		if (is_multicast_ether_addr(match.key->dst)) {
-			if (ether_addr_equal(match.mask->dst, _mask)) {
+			if (ether_addr_equal(match.mask->dst, _mask))
 				key->type = MV88E6XXX_KEY_ALL_MC_MAC;
-			} else {
-				memcpy(key->dst, match.key->dst, sizeof(key->dst));
+			else
 				key->type = MV88E6XXX_KEY_MC_MAC;
-			}
-			goto out;
 		}
 
 		if (ether_addr_equal(match.key->dst, uc) &&
-		    ether_addr_equal(match.mask->dst, _mask)) {
+		    ether_addr_equal(match.mask->dst, _mask))
 			key->type = MV88E6XXX_KEY_U_UC_MAC;
-			goto out;
-		}
 	}
 
 	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_VLAN)) {
@@ -7735,18 +7735,15 @@ static int mv88e6xxx_flower_parse_key(struct flow_cls_offload *cls,
 
 		flow_rule_match_vlan(rule, &match);
 
-		if (match.mask->vlan_priority != 0) {
+		key->vid = match.key->vlan_id;
+
+		if (match.mask->vlan_priority != 0)
 			key->type = MV88E6XXX_KEY_VLAN_PCP;
-			goto out;
-		}
 	}
 
-	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IP)) {
+	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IP))
 		key->type = MV88E6XXX_KEY_IP_DSCP;
-		goto out;
-	}
 
- out:
 	return 0;
 }
 
@@ -7841,6 +7838,97 @@ static int mv88e6xxx_mac_prio_add(struct dsa_switch *ds,
 	return 0;
 }
 
+static int mv88e6xxx_tc_setup_rxnfc(struct dsa_switch *ds,
+				    int port,
+				    struct netlink_ext_ack *extack,
+				    unsigned long cookie,
+				    struct mv88e6xxx_key *key,
+				    struct flow_action_entry *act)
+{
+	struct mv88e6xxx_chip *chip = ds->priv;
+	struct mv88e6xxx_rule *rule;
+	enum mv88e6xxx_policy_mapping mapping;
+	enum mv88e6xxx_policy_action action;
+	struct mv88e6xxx_policy *policy;
+	u8 zero_addr[ETH_ALEN] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+	u8 *addr;
+	int err = 0;
+	int policy_port = port;
+	int new_rule = 0;
+
+	mv88e6xxx_reg_lock(chip);
+
+	rule = mv88e6xxx_rule_find(chip, cookie);
+	if (!rule) {
+		rule = kzalloc(sizeof(*rule), GFP_KERNEL);
+		if (!rule) {
+			err = -ENOMEM;
+			goto out;
+		}
+
+		rule->cookie = cookie;
+		rule->type = MV88E6XXX_RULE_RXNFC;
+		new_rule = 1;
+	} else {
+		err = -EEXIST;
+		goto out;
+	}
+
+	switch (act->id) {
+	case FLOW_ACTION_DROP:
+		action = MV88E6XXX_POLICY_ACTION_DISCARD;
+		break;
+	case FLOW_ACTION_TRAP:
+		action = MV88E6XXX_POLICY_ACTION_MGMT_TRAP;
+		policy_port = dsa_upstream_port(chip->ds, port);
+		break;
+	default:
+		err = -EOPNOTSUPP;
+		goto out;
+	}
+
+	if (!ether_addr_equal(key->dst, zero_addr)) {
+		mapping = MV88E6XXX_POLICY_MAPPING_DA;
+		addr = key->dst;
+	} else if (!(ether_addr_equal(key->src, zero_addr))) {
+		mapping = MV88E6XXX_POLICY_MAPPING_SA;
+		addr = key->src;
+	} else {
+		err = -EOPNOTSUPP;
+		goto out;
+	}
+
+	policy = &rule->policy;
+
+	ether_addr_copy(policy->addr, addr);
+	policy->mapping = mapping;
+	policy->action = action;
+	policy->port = port;
+	policy->policy_port = policy_port;
+	policy->vid = key->vid;
+
+	err = mv88e6xxx_policy_apply(chip, policy_port, policy);
+	if (err)
+		goto out;
+
+	list_add(&rule->list, &chip->flow_block.rules);
+
+ out:
+	mv88e6xxx_reg_unlock(chip);
+
+	if (err && new_rule)
+		kfree(rule);
+
+	return err;
+}
+
+static int mv88e6xxx_tc_remove_rxnfc(struct mv88e6xxx_chip *chip,
+				     struct mv88e6xxx_rule *rule)
+{
+	rule->policy.action = MV88E6XXX_POLICY_ACTION_NORMAL;
+	return mv88e6xxx_policy_apply(chip, rule->policy.policy_port, &rule->policy);
+}
+
 static int mv88e6xxx_flower_action_parse_and_apply(struct dsa_switch *ds,
 						   int port,
 						   struct netlink_ext_ack *extack,
@@ -7849,9 +7937,14 @@ static int mv88e6xxx_flower_action_parse_and_apply(struct dsa_switch *ds,
 						   struct mv88e6xxx_key *key)
 {
 	struct flow_rule *rule = flow_cls_offload_flow_rule(cls);
-	struct flow_action *flow_action = &rule->action;
+	struct flow_action *flow_action;
 	struct flow_action_entry *act;
 	int err = 0;
+
+	if (!rule)
+		return -ENOENT;
+
+	flow_action = &rule->action;
 
 	if (!flow_action_has_entries(flow_action))
 		return -EINVAL;
@@ -7875,6 +7968,11 @@ static int mv88e6xxx_flower_action_parse_and_apply(struct dsa_switch *ds,
 	case FLOW_ACTION_POLICE:
 		err = mv88e6xxx_setup_port_policer(ds, port, extack,
 						   cookie, key, act);
+		break;
+	case FLOW_ACTION_DROP:
+	case FLOW_ACTION_TRAP:
+		err = mv88e6xxx_tc_setup_rxnfc(ds, port, extack,
+					       cookie, key, act);
 		break;
 	default:
 		return -EOPNOTSUPP;
@@ -7907,7 +8005,7 @@ int mv88e6xxx_cls_flower_del(struct dsa_switch *ds, int port,
 	int err = 0;
 
 	if (!rule)
-		return 0;
+		return -ENOENT;
 
 	mv88e6xxx_reg_lock(chip);
 
@@ -7935,9 +8033,15 @@ int mv88e6xxx_cls_flower_del(struct dsa_switch *ds, int port,
 			rule->mac_pri.pri, rule->key.dst);
 		rule->mac_pri.active = 0;
 		break;
+	case MV88E6XXX_RULE_RXNFC:
+		err = mv88e6xxx_tc_remove_rxnfc(chip, rule);
+		break;
 	default:
 		err = -EINVAL;
 	}
+
+	list_del(&rule->list);
+	kfree(rule);
 
 	mv88e6xxx_reg_unlock(chip);
 
