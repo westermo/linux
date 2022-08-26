@@ -190,8 +190,10 @@ static int nbp_switchdev_hwdom_set(struct net_bridge_port *joining)
 	struct net_bridge_port *p;
 	int hwdom;
 
-	/* joining is yet to be added to the port list. */
 	list_for_each_entry(p, &br->port_list, list) {
+		if ((p->dev == joining->dev) && !p->hwdom)
+			continue;
+
 		if (netdev_phys_item_id_same(&joining->ppid, &p->ppid)) {
 			joining->hwdom = p->hwdom;
 			return 0;
@@ -212,8 +214,10 @@ static void nbp_switchdev_hwdom_put(struct net_bridge_port *leaving)
 	struct net_bridge *br = leaving->br;
 	struct net_bridge_port *p;
 
-	/* leaving is no longer in the port list. */
 	list_for_each_entry(p, &br->port_list, list) {
+		if (p->dev == leaving->dev)
+			continue;
+
 		if (p->hwdom == leaving->hwdom)
 			return;
 	}
