@@ -543,7 +543,7 @@ static int sparx5_handle_port_mdb_add(struct net_device *dev,
 			return err;
 	}
 
-	mutex_lock(&spx5->lock);
+	mutex_lock(&spx5->mdb_lock);
 
 	/* Add any mrouter ports to the new entry */
 	if (is_new && ether_addr_is_ip_mcast(v->addr))
@@ -560,7 +560,7 @@ static int sparx5_handle_port_mdb_add(struct net_device *dev,
 		sparx5_pgid_update_mask(port, entry->pgid_idx, true);
 		set_bit(port->portno, entry->port_mask);
 	}
-	mutex_unlock(&spx5->lock);
+	mutex_unlock(&spx5->mdb_lock);
 
 	sparx5_mact_learn(spx5, entry->pgid_idx, entry->addr, entry->vid);
 
