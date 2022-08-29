@@ -114,7 +114,7 @@ static void sparx5_port_attr_mrouter_set(struct sparx5_port *port,
 	}
 	mutex_unlock(&sparx5->mdb_lock);
 
-	/* Enable/disable flooding depeding on if port is mrouter port
+	/* Enable/disable flooding depending on if port is mrouter port
 	 * or if mcast flood is enabled.
 	 */
 	port->is_mrouter = enable;
@@ -440,13 +440,13 @@ static int sparx5_alloc_mdb_entry(struct sparx5 *sparx5,
 	u16 pgid_idx;
 	int err;
 
-	entry = devm_kzalloc(sparx5->dev, sizeof(struct sparx5_mdb_entry), GFP_ATOMIC);
+	entry = kzalloc(sizeof(struct sparx5_mdb_entry), GFP_KERNEL);
 	if (!entry)
 		return -ENOMEM;
 
 	err = sparx5_pgid_alloc_mcast(sparx5, &pgid_idx);
 	if (err) {
-		devm_kfree(sparx5->dev, entry);
+		kfree(entry);
 		return err;
 	}
 
@@ -475,10 +475,12 @@ static void sparx5_free_mdb_entry(struct sparx5 *sparx5,
 			list_del(&entry->list);
 
 			sparx5_pgid_free(sparx5, entry->pgid_idx);
-
-			devm_kfree(sparx5->dev, entry);
+			kfree(entry);
+			goto out;
 		}
 	}
+
+out:
 	mutex_unlock(&sparx5->mdb_lock);
 }
 

@@ -219,10 +219,10 @@ struct sparx5_skb_cb {
 
 struct sparx5_mdb_entry {
 	struct list_head list;
-	unsigned char addr[ETH_ALEN];
-	u16 vid;
 	DECLARE_BITMAP(port_mask, SPX5_PORTS);
+	unsigned char addr[ETH_ALEN];
 	bool cpu_copy;
+	u16 vid;
 	u16 pgid_idx;
 };
 
