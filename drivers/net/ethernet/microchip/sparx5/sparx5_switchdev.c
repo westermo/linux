@@ -589,7 +589,7 @@ static int sparx5_handle_port_mdb_del(struct net_device *dev,
 
 	entry = sparx5_mdb_get_entry(spx5, v->addr, vid);
 	if (!entry)
-		return -ENOENT;
+		return 0;
 
 	mutex_lock(&spx5->mdb_lock);
 	if (is_host) {
