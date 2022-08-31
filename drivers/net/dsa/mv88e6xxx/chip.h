@@ -312,6 +312,16 @@ struct mv88e6xxx_port {
 	char serdes_irq_name[64];
 	struct devlink_region *region;
 	u16 mrp_ring_id;
+
+	/* Locked port and MacAuth control flags */
+	bool locked;
+	bool mab;
+
+	/* List and maintenance of ATU locked entries */
+	struct mutex ale_list_lock;
+	struct list_head ale_list;
+	struct delayed_work ale_work;
+	int ale_cnt;
 };
 
 enum mv88e6xxx_region_id {
@@ -509,6 +519,9 @@ struct mv88e6xxx_chip {
 	/* Current ingress and egress monitor ports */
 	int egress_dest_port;
 	int ingress_dest_port;
+
+	/* Keep the register written age time for easy access */
+	u8 age_time;
 
 	/* Per-port timestamping resources. */
 	struct mv88e6xxx_port_hwtstamp port_hwtstamp[DSA_MAX_PORTS];
@@ -934,6 +947,12 @@ static inline void mv88e6xxx_reg_unlock(struct mv88e6xxx_chip *chip)
 {
 	mutex_unlock(&chip->reg_lock);
 }
+
+int mv88e6xxx_vtu_walk(struct mv88e6xxx_chip *chip,
+		       int (*cb)(struct mv88e6xxx_chip *chip,
+				 const struct mv88e6xxx_vtu_entry *entry,
+				 void *priv),
+		       void *priv);
 
 int mv88e6xxx_fid_map(struct mv88e6xxx_chip *chip, unsigned long *bitmap);
 

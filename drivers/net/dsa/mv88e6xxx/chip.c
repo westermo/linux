@@ -46,6 +46,7 @@
 #include "serdes.h"
 #include "smi.h"
 #include "rmu.h"
+#include "switchdev.h"
 
 typedef enum {
 	LED_FUNCTION_TYPE_LINK_ACT = 0,
@@ -1191,6 +1192,13 @@ static void mv88e6xxx_mac_link_down(struct dsa_switch *ds, int port,
 	if (err)
 		dev_err(chip->dev,
 			"p%d: failed to force MAC link down\n", port);
+	else
+		if (mv88e6xxx_port_is_locked(chip, port)) {
+			err = mv88e6xxx_atu_locked_entry_flush(ds, port);
+			if (err)
+				dev_err(chip->dev,
+					"p%d: failed to clear locked entries\n", port);
+		}
 }
 
 static void mv88e6xxx_mac_link_up(struct dsa_switch *ds, int port,
@@ -2042,6 +2050,13 @@ static void mv88e6xxx_port_fast_age(struct dsa_switch *ds, int port)
 	struct mv88e6xxx_chip *chip = ds->priv;
 	int err;
 
+	if (mv88e6xxx_port_is_locked(chip, port)) {
+		err = mv88e6xxx_atu_locked_entry_flush(ds, port);
+		if (err)
+			dev_err(chip->ds->dev, "p%d: failed to clear locked entries: %d\n",
+					port, err);
+	}
+
 	mv88e6xxx_reg_lock(chip);
 	err = mv88e6xxx_port_fast_age_fid(chip, port, 0);
 	mv88e6xxx_reg_unlock(chip);
@@ -2078,11 +2093,11 @@ static int mv88e6xxx_vtu_get(struct mv88e6xxx_chip *chip, u16 vid,
 	return err;
 }
 
-static int mv88e6xxx_vtu_walk(struct mv88e6xxx_chip *chip,
-			      int (*cb)(struct mv88e6xxx_chip *chip,
-					const struct mv88e6xxx_vtu_entry *entry,
-					void *priv),
-			      void *priv)
+int mv88e6xxx_vtu_walk(struct mv88e6xxx_chip *chip,
+		       int (*cb)(struct mv88e6xxx_chip *chip,
+				 const struct mv88e6xxx_vtu_entry *entry,
+				 void *priv),
+		       void *priv)
 {
 	struct mv88e6xxx_vtu_entry entry = {
 		.vid = mv88e6xxx_max_vid(chip),
@@ -3170,10 +3185,18 @@ unlock:
 
 static int mv88e6xxx_port_fdb_add(struct dsa_switch *ds, int port,
 				  const unsigned char *addr, u16 vid,
+				  bool is_locked,
 				  struct dsa_db db)
 {
 	struct mv88e6xxx_chip *chip = ds->priv;
 	int err;
+
+	/* Ignore locked entries */
+	if (is_locked)
+		return 0;
+
+	if (mv88e6xxx_port_is_locked(chip, port))
+		mv88e6xxx_atu_locked_entry_find_purge(ds, port, addr, vid);
 
 	mv88e6xxx_reg_lock(chip);
 	err = mv88e6xxx_port_db_load_purge(chip, port, addr, vid,
@@ -3188,12 +3211,17 @@ static int mv88e6xxx_port_fdb_del(struct dsa_switch *ds, int port,
 				  struct dsa_db db)
 {
 	struct mv88e6xxx_chip *chip = ds->priv;
-	int err;
+	bool locked_found = false;
+	int err = 0;
 
-	mv88e6xxx_reg_lock(chip);
-	err = mv88e6xxx_port_db_load_purge(chip, port, addr, vid, 0);
-	mv88e6xxx_reg_unlock(chip);
+	if (mv88e6xxx_port_is_locked(chip, port))
+		locked_found = mv88e6xxx_atu_locked_entry_find_purge(ds, port, addr, vid);
 
+	if (!locked_found) {
+		mv88e6xxx_reg_lock(chip);
+		err = mv88e6xxx_port_db_load_purge(chip, port, addr, vid, 0);
+		mv88e6xxx_reg_unlock(chip);
+	}
 	return err;
 }
 
@@ -4398,11 +4426,18 @@ out_resources:
 
 static int mv88e6xxx_port_setup(struct dsa_switch *ds, int port)
 {
-	return mv88e6xxx_setup_devlink_regions_port(ds, port);
+	int err;
+
+	err = mv88e6xxx_setup_devlink_regions_port(ds, port);
+	if (!err)
+		return mv88e6xxx_init_violation_handler(ds, port);
+
+	return err;
 }
 
 static void mv88e6xxx_port_teardown(struct dsa_switch *ds, int port)
 {
+	mv88e6xxx_teardown_violation_handler(ds, port);
 	mv88e6xxx_teardown_devlink_regions_port(ds, port);
 }
 
@@ -7392,7 +7427,7 @@ static int mv88e6xxx_port_pre_bridge_flags(struct dsa_switch *ds, int port,
 	const struct mv88e6xxx_ops *ops;
 
 	if (flags.mask & ~(BR_LEARNING | BR_FLOOD | BR_MCAST_FLOOD |
-			   BR_BCAST_FLOOD | BR_PORT_LOCKED))
+			   BR_BCAST_FLOOD | BR_PORT_LOCKED | BR_PORT_MAB))
 		return -EINVAL;
 
 	ops = chip->info->ops;
@@ -7413,13 +7448,13 @@ static int mv88e6xxx_port_bridge_flags(struct dsa_switch *ds, int port,
 	struct mv88e6xxx_chip *chip = ds->priv;
 	int err = -EOPNOTSUPP;
 
-	mv88e6xxx_reg_lock(chip);
-
 	if (flags.mask & BR_LEARNING) {
 		bool learning = !!(flags.val & BR_LEARNING);
 		u16 pav = learning ? (1 << port) : 0;
 
+		mv88e6xxx_reg_lock(chip);
 		err = mv88e6xxx_port_set_assoc_vector(chip, port, pav);
+		mv88e6xxx_reg_unlock(chip);
 		if (err)
 			goto out;
 	}
@@ -7427,8 +7462,10 @@ static int mv88e6xxx_port_bridge_flags(struct dsa_switch *ds, int port,
 	if (flags.mask & BR_FLOOD) {
 		bool unicast = !!(flags.val & BR_FLOOD);
 
+		mv88e6xxx_reg_lock(chip);
 		err = chip->info->ops->port_set_ucast_flood(chip, port,
 							    unicast);
+		mv88e6xxx_reg_unlock(chip);
 		if (err)
 			goto out;
 	}
@@ -7436,8 +7473,10 @@ static int mv88e6xxx_port_bridge_flags(struct dsa_switch *ds, int port,
 	if (flags.mask & BR_MCAST_FLOOD) {
 		bool multicast = !!(flags.val & BR_MCAST_FLOOD);
 
+		mv88e6xxx_reg_lock(chip);
 		err = mv88e6xxx_port_update_mcast_flood(chip, port,
 							&multicast, NULL);
+		mv88e6xxx_reg_unlock(chip);
 		if (err)
 			goto out;
 	}
@@ -7445,20 +7484,34 @@ static int mv88e6xxx_port_bridge_flags(struct dsa_switch *ds, int port,
 	if (flags.mask & BR_BCAST_FLOOD) {
 		bool broadcast = !!(flags.val & BR_BCAST_FLOOD);
 
+		mv88e6xxx_reg_lock(chip);
 		err = mv88e6xxx_port_broadcast_sync(chip, port, broadcast);
+		mv88e6xxx_reg_unlock(chip);
 		if (err)
 			goto out;
+	}
+
+	if (flags.mask & BR_PORT_MAB) {
+		chip->ports[port].mab = !!(flags.val & BR_PORT_MAB);
+
+		if (!chip->ports[port].mab)
+			err = mv88e6xxx_atu_locked_entry_flush(ds, port);
+		else
+			err = 0;
 	}
 
 	if (flags.mask & BR_PORT_LOCKED) {
 		bool locked = !!(flags.val & BR_PORT_LOCKED);
 
+		mv88e6xxx_reg_lock(chip);
 		err = mv88e6xxx_port_set_lock(chip, port, locked);
+		mv88e6xxx_reg_unlock(chip);
 		if (err)
 			goto out;
+
+		chip->ports[port].locked = locked;
 	}
 out:
-	mv88e6xxx_reg_unlock(chip);
 
 	return err;
 }

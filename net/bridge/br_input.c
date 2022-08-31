@@ -109,9 +109,20 @@ int br_handle_frame_finish(struct net *net, struct sock *sk, struct sk_buff *skb
 		struct net_bridge_fdb_entry *fdb_src =
 			br_fdb_find_rcu(br, eth_hdr(skb)->h_source, vid);
 
-		if (!fdb_src || READ_ONCE(fdb_src->dst) != p ||
-		    test_bit(BR_FDB_LOCAL, &fdb_src->flags))
+		if (!fdb_src) {
+			unsigned long flags = 0;
+
+			if (p->flags & BR_PORT_MAB) {
+				__set_bit(BR_FDB_LOCKED, &flags);
+				br_fdb_update(br, p, eth_hdr(skb)->h_source,
+					      vid, flags);
+			}
 			goto drop;
+		} else if (READ_ONCE(fdb_src->dst) != p ||
+			   test_bit(BR_FDB_LOCAL, &fdb_src->flags) ||
+			   test_bit(BR_FDB_LOCKED, &fdb_src->flags)) {
+			goto drop;
+		}
 	}
 
 	nbp_switchdev_frame_mark(p, skb);
@@ -186,8 +197,11 @@ int br_handle_frame_finish(struct net *net, struct sock *sk, struct sk_buff *skb
 	if (dst) {
 		unsigned long now = jiffies;
 
-		if (test_bit(BR_FDB_LOCAL, &dst->flags))
+		if (test_bit(BR_FDB_LOCAL, &dst->flags)) {
+			if (unlikely(test_bit(BR_FDB_BLACKHOLE, &dst->flags)))
+				goto drop;
 			return br_pass_frame_up(skb);
+		}
 
 		if (now != dst->used)
 			dst->used = now;

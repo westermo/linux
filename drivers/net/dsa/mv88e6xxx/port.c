@@ -14,9 +14,11 @@
 #include <linux/phylink.h>
 
 #include "chip.h"
+#include "global1.h"
 #include "global2.h"
 #include "port.h"
 #include "serdes.h"
+#include "switchdev.h"
 
 int mv88e6xxx_port_read(struct mv88e6xxx_chip *chip, int port, int reg,
 			u16 *val)
@@ -1324,13 +1326,12 @@ int mv88e6xxx_port_set_lock(struct mv88e6xxx_chip *chip, int port,
 	if (err)
 		return err;
 
-	err = mv88e6xxx_port_read(chip, port, MV88E6XXX_PORT_ASSOC_VECTOR, &reg);
-	if (err)
-		return err;
-
-	reg &= ~MV88E6XXX_PORT_ASSOC_VECTOR_LOCKED_PORT;
-	if (locked)
-		reg |= MV88E6XXX_PORT_ASSOC_VECTOR_LOCKED_PORT;
+	reg = 0;
+	if (locked) {
+		reg = (1 << port);
+		reg |= MV88E6XXX_PORT_ASSOC_VECTOR_IGNORE_WRONG |
+			MV88E6XXX_PORT_ASSOC_VECTOR_LOCKED_PORT;
+	}
 
 	return mv88e6xxx_port_write(chip, port, MV88E6XXX_PORT_ASSOC_VECTOR, reg);
 }

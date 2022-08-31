@@ -1820,9 +1820,13 @@ int sja1105pqrs_fdb_del(struct dsa_switch *ds, int port,
 
 static int sja1105_fdb_add(struct dsa_switch *ds, int port,
 			   const unsigned char *addr, u16 vid,
+			   bool is_locked,
 			   struct dsa_db db)
 {
 	struct sja1105_private *priv = ds->priv;
+
+	if (is_locked)
+		return 0;
 
 	return priv->info->fdb_add_cmd(ds, port, addr, vid);
 }
@@ -1937,7 +1941,7 @@ static int sja1105_mdb_add(struct dsa_switch *ds, int port,
 			   const struct switchdev_obj_port_mdb *mdb,
 			   struct dsa_db db)
 {
-	return sja1105_fdb_add(ds, port, mdb->addr, mdb->vid, db);
+	return sja1105_fdb_add(ds, port, mdb->addr, mdb->vid, false, db);
 }
 
 static int sja1105_mdb_del(struct dsa_switch *ds, int port,

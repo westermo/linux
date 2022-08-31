@@ -134,6 +134,16 @@ check_locked_port_support()
 	fi
 }
 
+check_port_mab_support()
+{
+	local dev=$1;
+
+	if ! bridge link set dev $dev mab on 2>/dev/null; then
+		echo "SKIP: iproute2 too old; MacAuth feature not supported."
+		return $ksft_skip
+	fi
+}
+
 if [[ "$(id -u)" -ne 0 ]]; then
 	echo "SKIP: need root privileges"
 	exit $ksft_skip

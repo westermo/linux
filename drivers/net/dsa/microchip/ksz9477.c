@@ -544,12 +544,17 @@ static int ksz9477_port_vlan_del(struct dsa_switch *ds, int port,
 
 static int ksz9477_port_fdb_add(struct dsa_switch *ds, int port,
 				const unsigned char *addr, u16 vid,
+				bool is_locked,
 				struct dsa_db db)
 {
 	struct ksz_device *dev = ds->priv;
 	u32 alu_table[4];
 	u32 data;
 	int ret = 0;
+
+	/* Ignore locked entries */
+	if (is_locked)
+		return ret;
 
 	mutex_lock(&dev->alu_mutex);
 

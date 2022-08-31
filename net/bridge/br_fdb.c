@@ -105,6 +105,7 @@ static int fdb_fill_info(struct sk_buff *skb, const struct net_bridge *br,
 	struct nda_cacheinfo ci;
 	struct nlmsghdr *nlh;
 	struct ndmsg *ndm;
+	u32 ext_flags = 0;
 
 	nlh = nlmsg_put(skb, portid, seq, type, sizeof(*ndm), flags);
 	if (nlh == NULL)
@@ -125,11 +126,18 @@ static int fdb_fill_info(struct sk_buff *skb, const struct net_bridge *br,
 		ndm->ndm_flags |= NTF_EXT_LEARNED;
 	if (test_bit(BR_FDB_STICKY, &fdb->flags))
 		ndm->ndm_flags |= NTF_STICKY;
+	if (test_bit(BR_FDB_LOCKED, &fdb->flags))
+		ext_flags |= NTF_EXT_LOCKED;
+	if (test_bit(BR_FDB_BLACKHOLE, &fdb->flags))
+		ext_flags |= NTF_EXT_BLACKHOLE;
 
 	if (nla_put(skb, NDA_LLADDR, ETH_ALEN, &fdb->key.addr))
 		goto nla_put_failure;
 	if (nla_put_u32(skb, NDA_MASTER, br->dev->ifindex))
 		goto nla_put_failure;
+	if (nla_put_u32(skb, NDA_FLAGS_EXT, ext_flags))
+		goto nla_put_failure;
+
 	ci.ndm_used	 = jiffies_to_clock_t(now - fdb->used);
 	ci.ndm_confirmed = 0;
 	ci.ndm_updated	 = jiffies_to_clock_t(now - fdb->updated);
@@ -171,6 +179,7 @@ static inline size_t fdb_nlmsg_size(void)
 	return NLMSG_ALIGN(sizeof(struct ndmsg))
 		+ nla_total_size(ETH_ALEN) /* NDA_LLADDR */
 		+ nla_total_size(sizeof(u32)) /* NDA_MASTER */
+		+ nla_total_size(sizeof(u32)) /* NDA_FLAGS_EXT */
 		+ nla_total_size(sizeof(u16)) /* NDA_VLAN */
 		+ nla_total_size(sizeof(struct nda_cacheinfo))
 		+ nla_total_size(0) /* NDA_FDB_EXT_ATTRS */
@@ -749,6 +758,10 @@ void br_fdb_update(struct net_bridge *br, struct net_bridge_port *source,
 						      &fdb->flags)))
 					clear_bit(BR_FDB_ADDED_BY_EXT_LEARN,
 						  &fdb->flags);
+				/* Allow roaming from an unauthorized port to an
+				 * authorized port */
+				if (unlikely(test_bit(BR_FDB_LOCKED, &fdb->flags)))
+					clear_bit(BR_FDB_LOCKED, &fdb->flags);
 			}
 
 			if (unlikely(test_bit(BR_FDB_ADDED_BY_USER, &flags)))
@@ -881,6 +894,7 @@ static int fdb_add_entry(struct net_bridge *br, struct net_bridge_port *source,
 			 struct nlattr *nfea_tb[])
 {
 	bool is_sticky = !!(ndm->ndm_flags & NTF_STICKY);
+	bool blackhole = !!(flags & NTF_EXT_BLACKHOLE);
 	bool refresh = !nfea_tb[NFEA_DONT_REFRESH];
 	struct net_bridge_fdb_entry *fdb;
 	u16 state = ndm->ndm_state;
@@ -932,6 +946,8 @@ static int fdb_add_entry(struct net_bridge *br, struct net_bridge_port *source,
 	if (fdb_to_nud(br, fdb) != state) {
 		if (state & NUD_PERMANENT) {
 			set_bit(BR_FDB_LOCAL, &fdb->flags);
+			if (blackhole != test_bit(BR_FDB_BLACKHOLE, &fdb->flags))
+				change_bit(BR_FDB_BLACKHOLE, &fdb->flags);
 			if (!test_and_set_bit(BR_FDB_STATIC, &fdb->flags))
 				fdb_add_hw_addr(br, addr);
 		} else if (state & NUD_NOARP) {
@@ -947,10 +963,14 @@ static int fdb_add_entry(struct net_bridge *br, struct net_bridge_port *source,
 		modified = true;
 	}
 
+
 	if (is_sticky != test_bit(BR_FDB_STICKY, &fdb->flags)) {
 		change_bit(BR_FDB_STICKY, &fdb->flags);
 		modified = true;
 	}
+
+	if (test_and_clear_bit(BR_FDB_LOCKED, &fdb->flags))
+		modified = true;
 
 	if (fdb_handle_notify(fdb, notify))
 		modified = true;
@@ -994,7 +1014,7 @@ static int __br_fdb_add(struct ndmsg *ndm, struct net_bridge *br,
 					   "FDB entry towards bridge must be permanent");
 			return -EINVAL;
 		}
-		err = br_fdb_external_learn_add(br, p, addr, vid, true);
+		err = br_fdb_external_learn_add(br, p, addr, vid, true, false, false, false);
 	} else {
 		spin_lock_bh(&br->hash_lock);
 		err = fdb_add_entry(br, p, addr, ndm, nlh_flags, vid, nfea_tb);
@@ -1020,6 +1040,7 @@ int br_fdb_add(struct ndmsg *ndm, struct nlattr *tb[],
 	struct net_bridge_port *p = NULL;
 	struct net_bridge_vlan *v;
 	struct net_bridge *br = NULL;
+	u32 ext_flags = 0;
 	int err = 0;
 
 	trace_br_fdb_add(ndm, dev, addr, vid, nlh_flags);
@@ -1046,6 +1067,14 @@ int br_fdb_add(struct ndmsg *ndm, struct nlattr *tb[],
 		}
 		br = p->br;
 		vg = nbp_vlan_group(p);
+	}
+
+	if (tb[NDA_FLAGS_EXT])
+		ext_flags = nla_get_u32(tb[NDA_FLAGS_EXT]);
+
+	if (ext_flags & NTF_EXT_LOCKED) {
+		pr_info("bridge: RTM_NEWNEIGH has invalid extended flags\n");
+		return -EINVAL;
 	}
 
 	if (tb[NDA_FDB_EXT_ATTRS]) {
@@ -1223,7 +1252,8 @@ void br_fdb_unsync_static(struct net_bridge *br, struct net_bridge_port *p)
 
 int br_fdb_external_learn_add(struct net_bridge *br, struct net_bridge_port *p,
 			      const unsigned char *addr, u16 vid,
-			      bool swdev_notify)
+			      bool swdev_notify, bool local,
+			      bool locked, bool blackhole)
 {
 	struct net_bridge_fdb_entry *fdb;
 	bool modified = false;
@@ -1240,8 +1270,14 @@ int br_fdb_external_learn_add(struct net_bridge *br, struct net_bridge_port *p,
 		if (swdev_notify)
 			flags |= BIT(BR_FDB_ADDED_BY_USER);
 
-		if (!p)
+		if (!p || local)
 			flags |= BIT(BR_FDB_LOCAL);
+
+		if (locked)
+			flags |= BIT(BR_FDB_LOCKED);
+
+		if (blackhole)
+			flags |= BIT(BR_FDB_BLACKHOLE);
 
 		fdb = fdb_create(br, p, addr, vid, flags);
 		if (!fdb) {
@@ -1263,6 +1299,21 @@ int br_fdb_external_learn_add(struct net_bridge *br, struct net_bridge_port *p,
 		} else if (!test_bit(BR_FDB_ADDED_BY_USER, &fdb->flags)) {
 			/* Take over SW learned entry */
 			set_bit(BR_FDB_ADDED_BY_EXT_LEARN, &fdb->flags);
+			modified = true;
+		}
+
+		if (local != test_bit(BR_FDB_LOCAL, &fdb->flags) ) {
+			change_bit(BR_FDB_LOCAL, &fdb->flags);
+			modified = true;
+		}
+
+		if (locked != test_bit(BR_FDB_LOCKED, &fdb->flags)) {
+			change_bit(BR_FDB_LOCKED, &fdb->flags);
+			modified = true;
+		}
+
+		if (blackhole != test_bit(BR_FDB_BLACKHOLE, &fdb->flags)) {
+			change_bit(BR_FDB_BLACKHOLE, &fdb->flags);
 			modified = true;
 		}
 

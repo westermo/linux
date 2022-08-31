@@ -237,6 +237,7 @@
 #define MV88E6XXX_PORT_ASSOC_VECTOR_LOCKED_PORT		0x2000
 #define MV88E6XXX_PORT_ASSOC_VECTOR_IGNORE_WRONG	0x1000
 #define MV88E6XXX_PORT_ASSOC_VECTOR_REFRESH_LOCKED	0x0800
+#define MV88E6XXX_PORT_ASSOC_VECTOR_PAV_MASK		0x07ff
 
 /* Offset 0x0C: Port ATU Control */
 #define MV88E6XXX_PORT_ATU_CTL		0x0c
@@ -402,6 +403,11 @@ int mv88e6xxx_port_set_pvid(struct mv88e6xxx_chip *chip, int port, u16 pvid);
 
 int mv88e6xxx_port_set_lock(struct mv88e6xxx_chip *chip, int port,
 			    bool locked);
+
+static inline bool mv88e6xxx_port_is_locked(struct mv88e6xxx_chip *chip, int port)
+{
+	return chip->ports[port].locked;
+}
 
 int mv88e6xxx_port_set_8021q_mode(struct mv88e6xxx_chip *chip, int port,
 				  u16 mode);
