@@ -545,6 +545,7 @@ static int ksz9477_port_vlan_del(struct dsa_switch *ds, int port,
 static int ksz9477_port_fdb_add(struct dsa_switch *ds, int port,
 				const unsigned char *addr, u16 vid,
 				bool is_locked,
+				bool is_static,
 				struct dsa_db db)
 {
 	struct ksz_device *dev = ds->priv;
@@ -552,8 +553,8 @@ static int ksz9477_port_fdb_add(struct dsa_switch *ds, int port,
 	u32 data;
 	int ret = 0;
 
-	/* Ignore locked entries */
-	if (is_locked)
+	/* Ignore locked and dynamic entries */
+	if (is_locked || !is_static)
 		return ret;
 
 	mutex_lock(&dev->alu_mutex);

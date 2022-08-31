@@ -249,6 +249,7 @@ struct switchdev_notifier_fdb_info {
 	   is_local:1,
 	   locked:1,
 	   blackhole:1,
+	   is_static:1,
 	   offloaded:1;
 };
 

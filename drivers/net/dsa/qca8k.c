@@ -1966,13 +1966,14 @@ static int
 qca8k_port_fdb_add(struct dsa_switch *ds, int port,
 		   const unsigned char *addr, u16 vid,
 		   bool is_locked,
+		   bool is_static,
 		   struct dsa_db db)
 {
 	struct qca8k_priv *priv = (struct qca8k_priv *)ds->priv;
 	u16 port_mask = BIT(port);
 
-	/* Ignore locked entries */
-	if (is_locked)
+	/* Ignore locked and dynamic entries */
+	if (is_locked || !is_static)
 		return 0;
 
 	return qca8k_port_fdb_insert(priv, addr, port_mask, vid);

@@ -2801,6 +2801,7 @@ static void dsa_slave_switchdev_event_work(struct work_struct *work)
 	const unsigned char *addr = switchdev_work->addr;
 	struct net_device *dev = switchdev_work->dev;
 	bool is_locked = switchdev_work->is_locked;
+	bool is_static = switchdev_work->is_static;
 	u16 vid = switchdev_work->vid;
 	struct dsa_switch *ds;
 	struct dsa_port *dp;
@@ -2816,7 +2817,7 @@ static void dsa_slave_switchdev_event_work(struct work_struct *work)
 		else if (dp->lag)
 			err = dsa_port_lag_fdb_add(dp, addr, vid);
 		else
-			err = dsa_port_fdb_add(dp, addr, vid, is_locked);
+			err = dsa_port_fdb_add(dp, addr, vid, is_locked, is_static);
 		if (err) {
 			dev_err(ds->dev,
 				"port %d failed to add %pM vid %d to fdb: %d\n",
@@ -2925,6 +2926,7 @@ static int dsa_slave_fdb_event(struct net_device *dev,
 	switchdev_work->vid = fdb_info->vid;
 	switchdev_work->host_addr = host_addr;
 	switchdev_work->is_locked = fdb_info->locked;
+	switchdev_work->is_static = fdb_info->is_static;
 
 	dsa_schedule_work(&switchdev_work->work);
 

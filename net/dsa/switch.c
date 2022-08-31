@@ -297,7 +297,7 @@ out:
 }
 
 static int dsa_port_do_fdb_add(struct dsa_port *dp, const unsigned char *addr,
-			       u16 vid, bool is_locked, struct dsa_db db)
+			       u16 vid, bool is_locked, bool is_static, struct dsa_db db)
 {
 	struct dsa_switch *ds = dp->ds;
 	struct dsa_mac_addr *a;
@@ -306,7 +306,7 @@ static int dsa_port_do_fdb_add(struct dsa_port *dp, const unsigned char *addr,
 
 	/* No need to bother with refcounting for user ports */
 	if (!(dsa_port_is_cpu(dp) || dsa_port_is_dsa(dp)))
-		return ds->ops->port_fdb_add(ds, port, addr, vid, is_locked, db);
+		return ds->ops->port_fdb_add(ds, port, addr, vid, is_locked, is_static, db);
 
 	mutex_lock(&dp->addr_lists_lock);
 
@@ -322,7 +322,7 @@ static int dsa_port_do_fdb_add(struct dsa_port *dp, const unsigned char *addr,
 		goto out;
 	}
 
-	err = ds->ops->port_fdb_add(ds, port, addr, vid, is_locked, db);
+	err = ds->ops->port_fdb_add(ds, port, addr, vid, is_locked, is_static, db);
 	if (err) {
 		kfree(a);
 		goto out;
@@ -462,7 +462,7 @@ static int dsa_switch_host_fdb_add(struct dsa_switch *ds,
 		if (dsa_port_host_address_match(dp, info->sw_index,
 						info->port)) {
 			err = dsa_port_do_fdb_add(dp, info->addr, info->vid,
-						  false, info->db);
+						  false, true, info->db);
 			if (err)
 				break;
 		}
@@ -502,7 +502,8 @@ static int dsa_switch_fdb_add(struct dsa_switch *ds,
 	if (!ds->ops->port_fdb_add)
 		return -EOPNOTSUPP;
 
-	return dsa_port_do_fdb_add(dp, info->addr, info->vid, info->is_locked, info->db);
+	return dsa_port_do_fdb_add(dp, info->addr, info->vid,
+				   info->is_locked, info->is_static, info->db);
 }
 
 static int dsa_switch_fdb_del(struct dsa_switch *ds,

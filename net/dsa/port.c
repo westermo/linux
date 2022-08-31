@@ -921,7 +921,7 @@ int dsa_port_mtu_change(struct dsa_port *dp, int new_mtu,
 }
 
 int dsa_port_fdb_add(struct dsa_port *dp, const unsigned char *addr,
-		     u16 vid, bool is_locked)
+		     u16 vid, bool is_locked, bool is_static)
 {
 	struct dsa_notifier_fdb_info info = {
 		.sw_index = dp->ds->index,
@@ -929,6 +929,7 @@ int dsa_port_fdb_add(struct dsa_port *dp, const unsigned char *addr,
 		.addr = addr,
 		.vid = vid,
 		.is_locked = is_locked,
+		.is_static = is_static,
 		.db = {
 			.type = DSA_DB_BRIDGE,
 			.bridge = *dp->bridge,
@@ -953,6 +954,7 @@ int dsa_port_fdb_del(struct dsa_port *dp, const unsigned char *addr,
 		.port = dp->index,
 		.addr = addr,
 		.vid = vid,
+		.is_static = true,
 		.db = {
 			.type = DSA_DB_BRIDGE,
 			.bridge = *dp->bridge,
@@ -974,6 +976,7 @@ static int dsa_port_host_fdb_add(struct dsa_port *dp,
 		.port = dp->index,
 		.addr = addr,
 		.vid = vid,
+		.is_static = true,
 		.db = db,
 	};
 

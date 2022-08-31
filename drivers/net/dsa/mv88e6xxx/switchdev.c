@@ -13,6 +13,27 @@
 #include "global1.h"
 #include "switchdev.h"
 
+void mv88e6xxx_add_fdb_synth_learned(struct dsa_switch *ds,
+				     int port,
+				     const unsigned char *addr,
+				     u16 vid)
+{
+	struct switchdev_notifier_fdb_info info = {
+		.addr = addr,
+		.vid = vid,
+		.offloaded = true,
+	};
+	struct net_device *brport;
+	struct dsa_port *dp;
+
+	dp = dsa_to_port(ds, port);
+	brport = dsa_port_to_bridge_port(dp);
+
+	if (brport)
+		call_switchdev_notifiers(SWITCHDEV_FDB_ADD_TO_BRIDGE,
+					 brport, &info.info, NULL);
+}
+
 static void mv88e6xxx_atu_locked_entry_purge(struct mv88e6xxx_atu_locked_entry *ale, bool notify, bool take_nl_lock)
 {
 	struct switchdev_notifier_fdb_info info = {
@@ -123,7 +144,6 @@ int mv88e6xxx_handle_violation(struct mv88e6xxx_chip *chip, int port,
 	struct switchdev_notifier_fdb_info info = {
 		.addr = entry->mac,
 		.vid = 0,
-		.sticky = true,
 		.locked = true,
 		.blackhole = true,
 		.offloaded = true,
@@ -152,6 +172,16 @@ int mv88e6xxx_handle_violation(struct mv88e6xxx_chip *chip, int port,
 		return -ENODATA;
 
 	switch (type) {
+	case MV88E6XXX_G1_ATU_OP_AGE_OUT_VIOLATION:
+		entry->portvec &= ~BIT(port);
+		entry->state = MV88E6XXX_G1_ATU_DATA_STATE_UC_UNUSED;
+		entry->trunk = false;
+		err = mv88e6xxx_g1_atu_loadpurge(chip, fid, entry);
+		mv88e6xxx_reg_unlock(chip);
+		rtnl_lock();
+		err = call_switchdev_notifiers(SWITCHDEV_FDB_DEL_TO_BRIDGE,
+					       brport, &info.info, NULL);
+		break;
 	case MV88E6XXX_G1_ATU_OP_MISS_VIOLATION:
 		mutex_lock(&p->ale_list_lock);
 		if (p->ale_cnt >= ATU_LOCKED_ENTRIES_MAX)

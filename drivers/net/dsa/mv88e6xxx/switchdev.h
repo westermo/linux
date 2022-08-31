@@ -25,6 +25,10 @@ struct mv88e6xxx_atu_locked_entry {
 	unsigned long	expires;
 };
 
+void mv88e6xxx_add_fdb_synth_learned(struct dsa_switch *ds,
+				     int port,
+				     const unsigned char *addr,
+				     u16 vid);
 int mv88e6xxx_handle_violation(struct mv88e6xxx_chip *chip, int port,
 			       struct mv88e6xxx_atu_entry *entry,
 			       u16 fid, u16 type);

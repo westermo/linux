@@ -1821,12 +1821,14 @@ int sja1105pqrs_fdb_del(struct dsa_switch *ds, int port,
 static int sja1105_fdb_add(struct dsa_switch *ds, int port,
 			   const unsigned char *addr, u16 vid,
 			   bool is_locked,
+			   bool is_static,
 			   struct dsa_db db)
 {
 	struct sja1105_private *priv = ds->priv;
 
-	if (is_locked)
-		return 0;
+	/* Ignore locked and dynamic entries */
+	if (is_locked || !is_static)
+ 		return 0;
 
 	return priv->info->fdb_add_cmd(ds, port, addr, vid);
 }

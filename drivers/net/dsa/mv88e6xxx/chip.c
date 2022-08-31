@@ -3186,22 +3186,31 @@ unlock:
 static int mv88e6xxx_port_fdb_add(struct dsa_switch *ds, int port,
 				  const unsigned char *addr, u16 vid,
 				  bool is_locked,
+				  bool is_static,
 				  struct dsa_db db)
 {
 	struct mv88e6xxx_chip *chip = ds->priv;
+	u8 state;
 	int err;
 
 	/* Ignore locked entries */
 	if (is_locked)
 		return 0;
 
+	if (is_static)
+		state = MV88E6XXX_G1_ATU_DATA_STATE_UC_STATIC;
+	else
+		state = MV88E6XXX_G1_ATU_DATA_STATE_UC_AGE_7_NEWEST;
+
 	if (mv88e6xxx_port_is_locked(chip, port))
 		mv88e6xxx_atu_locked_entry_find_purge(ds, port, addr, vid);
 
 	mv88e6xxx_reg_lock(chip);
-	err = mv88e6xxx_port_db_load_purge(chip, port, addr, vid,
-					   MV88E6XXX_G1_ATU_DATA_STATE_UC_STATIC);
+	err = mv88e6xxx_port_db_load_purge(chip, port, addr, vid, state);
 	mv88e6xxx_reg_unlock(chip);
+
+	if (!(is_static || err))
+		mv88e6xxx_add_fdb_synth_learned(ds, port, addr, vid);
 
 	return err;
 }

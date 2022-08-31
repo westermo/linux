@@ -684,11 +684,13 @@ static int felix_fdb_dump(struct dsa_switch *ds, int port,
 static int felix_fdb_add(struct dsa_switch *ds, int port,
 			 const unsigned char *addr, u16 vid,
 			 bool is_locked,
+			 bool is_static,
 			 struct dsa_db db)
 {
 	struct ocelot *ocelot = ds->priv;
 
-	if (is_locked)
+	/* Ignore locked and dynamic entries */
+	if (is_locked || !is_static)
 		return 0;
 
 	return ocelot_fdb_add(ocelot, port, addr, vid);

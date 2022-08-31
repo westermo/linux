@@ -68,6 +68,7 @@ struct dsa_notifier_fdb_info {
 	const unsigned char *addr;
 	u16 vid;
 	bool is_locked;
+	bool is_static;
 	struct dsa_db db;
 };
 
@@ -137,6 +138,7 @@ struct dsa_switchdev_event_work {
 	u16 vid;
 	bool host_addr;
 	bool is_locked;
+	bool is_static;
 };
 
 enum dsa_standalone_event {
@@ -238,7 +240,7 @@ int dsa_port_vlan_msti(struct dsa_port *dp,
 int dsa_port_mtu_change(struct dsa_port *dp, int new_mtu,
 			bool targeted_match);
 int dsa_port_fdb_add(struct dsa_port *dp, const unsigned char *addr,
-		     u16 vid, bool is_locked);
+		     u16 vid, bool is_locked, bool is_static);
 int dsa_port_fdb_del(struct dsa_port *dp, const unsigned char *addr,
 		     u16 vid);
 int dsa_port_standalone_host_fdb_add(struct dsa_port *dp,

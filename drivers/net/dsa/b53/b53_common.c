@@ -1706,13 +1706,14 @@ static int b53_arl_op(struct b53_device *dev, int op, int port,
 int b53_fdb_add(struct dsa_switch *ds, int port,
 		const unsigned char *addr, u16 vid,
 		bool is_locked,
+		bool is_static,
 		struct dsa_db db)
 {
 	struct b53_device *priv = ds->priv;
 	int ret;
 
-	/* Ignore locked entries */
-	if (is_locked)
+	/* Ignore locked and dynamic entries */
+	if (is_locked || !is_static)
 		return 0;
 
 	/* 5325 and 5365 require some more massaging, but could
