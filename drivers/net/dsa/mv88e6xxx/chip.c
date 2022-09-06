@@ -44,6 +44,11 @@
 #include "serdes.h"
 #include "smi.h"
 
+typedef enum {
+	LED_FUNCTION_TYPE_LINK_ACT = 0,
+	LED_FUNCTION_TYPE_STATE
+} led_function_t;
+
 struct mv88e6xxx_led {
 	const char *name;
 	struct led_classdev cdev;
@@ -1015,6 +1020,75 @@ static void mv88e6393x_phylink_get_caps(struct mv88e6xxx_chip *chip, int port,
 				MAC_10000FD;
 		}
 	}
+}
+
+static u16 mv88e6xxx_set_led_data( u16 bf_function, u16 data, int index)
+{
+	u16 mask;
+
+	bf_function = bf_function << (4 * index);
+	mask = LED_FORCE_ON << (4 * index);
+
+	if ((data & mask) ^ bf_function) {
+		data = (data & ~mask) | bf_function;
+		data |= LED_UPDATE;
+	}
+
+	return data;
+}
+
+/* Setup the default behaviour for the port leds.
+   Link/act on green LED and turn off the yellow LED. */
+int mv88e6390x_set_led(struct mv88e6xxx_chip *chip, int port, int index, int function)
+{
+	u16 bf_function = 0;
+	u16 data;
+	int err;
+
+	err = mv88e6xxx_port_read(chip, port, MV88E6XXX_PORT_LED_CONTROL, &data);
+	if (err)
+		return err;
+
+	switch (function) {
+	case LED_FUNCTION_TYPE_LINK_ACT:
+		bf_function = LED_LINK_ACT_PERIDOT;
+		break;
+	case LED_FUNCTION_TYPE_STATE:
+		bf_function = LED_FORCE_OFF;
+		break;
+	}
+
+	data = mv88e6xxx_set_led_data( bf_function, data, index);
+	pr_debug("[ %d : %d : %d] mv88e6390x_set_led: 0x%0x", port, index, function, data);
+	mv88e6xxx_port_write(chip, port, MV88E6XXX_PORT_LED_CONTROL, data);
+
+	return 0;
+}
+
+int mv88e6352_set_led(struct mv88e6xxx_chip *chip, int port, int index, int function)
+{
+	u16 bf_function = 0;
+	u16 data;
+	int err;
+
+	err = mv88e6xxx_port_read(chip, port, MV88E6XXX_PORT_LED_CONTROL, &data);
+	if (err)
+		return err;
+
+	switch (function) {
+	case LED_FUNCTION_TYPE_LINK_ACT:
+		bf_function = LED_LINK_ACT_AGATE;
+		break;
+	case LED_FUNCTION_TYPE_STATE:
+		bf_function = LED_FORCE_OFF;
+		break;
+	}
+
+	data = mv88e6xxx_set_led_data( bf_function, data, index);
+	pr_debug("[ %d : %d : %d] mv88e6352_set_led: 0x%0x", port, index, function, data);
+	mv88e6xxx_port_write(chip, port, MV88E6XXX_PORT_LED_CONTROL, data);
+
+	return 0;
 }
 
 static void mv88e6xxx_get_caps(struct dsa_switch *ds, int port,
@@ -4268,7 +4342,7 @@ static int mv88e6xxx_led_brightness_set(struct led_classdev *cdev,
 	if (err)
 		return err;
 
-	idx = led->chip->info->led_pos;
+	idx = led->index;
 
 	mask = LED_FORCE_ON << (4 * idx);
 	out = (value ? LED_FORCE_ON : LED_FORCE_OFF) << (4 * idx);
@@ -4291,7 +4365,7 @@ enum led_brightness mv88e6xxx_led_brightness_get(struct led_classdev *cdev)
 	int err;
 	int idx;
 
-	idx = led->chip->info->led_pos;
+	idx = led->index;
 
 	mutex_lock(&led->chip->reg_lock);
 	err = mv88e6xxx_port_read(led->chip, led->port, MV88E6XXX_PORT_LED_CONTROL, &led_ctrl);
@@ -4315,7 +4389,7 @@ enum led_brightness mv88e6xxx_led_brightness_get(struct led_classdev *cdev)
 }
 
 static int mv88e6xxx_led_register(struct mv88e6xxx_chip *chip,
-				  struct mv88e6xxx_led *led, int port, int index, const char *label)
+				  struct mv88e6xxx_led *led, int port, int index, const char *label, int function)
 {
 	led->cdev.name = label;
 	led->chip = chip;
@@ -4326,11 +4400,8 @@ static int mv88e6xxx_led_register(struct mv88e6xxx_chip *chip,
 	led_classdev_register(&chip->bus->dev, &led->cdev);
 
 	mutex_lock(&led->chip->reg_lock);
-	/* Setup the default behaviour for the port leds.
-	   Link/act on the LED1 (green) and turn off the LED0 (yellow). */
-	mv88e6xxx_port_write(led->chip, port, MV88E6XXX_PORT_LED_CONTROL,
-			     chip->info->led_pos ? LED_NORMAL_MODE_AGATE : LED_NORMAL_MODE_PERIDOT);
-
+	if (chip->info->ops->set_led)
+		chip->info->ops->set_led(chip, port, index, function);
 	mutex_unlock(&led->chip->reg_lock);
 
 	return 0;
@@ -4339,35 +4410,36 @@ static int mv88e6xxx_led_register(struct mv88e6xxx_chip *chip,
 static int mv88e6xxx_leds_register(struct mv88e6xxx_chip *chip, struct device_node *np)
 {
 	const char *label = NULL, *port_name = NULL, *name;
-	struct device_node *child, *p, *phy;
-	struct mv88e6xxx_led *leds, *led;
-	int idx = 0, i = 0;
+	struct device_node *child, *p;
+	struct mv88e6xxx_led *led;
+	int function, i = 0;
 	char led_str[16];
 	u32 reg = 0;
-
-	leds = kzalloc(sizeof(struct mv88e6xxx_led) * mv88e6xxx_num_ports(chip) * 2, GFP_KERNEL);
-	if (!leds)
-		return -ENOMEM;
 
 	child = of_get_child_by_name(np, "ports");
 
 	for_each_child_of_node(child, p) {
+		for (i = 0; i < chip->info->num_leds; i++) {
+			snprintf(led_str, sizeof(led_str), "led-%d", i);
+			if (!of_property_read_string(p, led_str, &label)) {
+				led = kzalloc(sizeof(struct mv88e6xxx_led), GFP_KERNEL);
+				if (!led)
+					return -ENOMEM;
 
-		for (i = 0; i < 2; i++) {
-			led = &leds[idx + i];
-			phy = of_parse_phandle(p, "phy-handle", 0);
-			of_property_read_string(p, "label", &port_name);
-			of_property_read_u32(phy, "reg", &reg);
-
-			snprintf(led_str, sizeof(led_str), "led-%d", (idx + i) % 2);
-			of_property_read_string(phy, led_str, &label);
-			name = kasprintf(GFP_KERNEL, "%s:%s", port_name, label);
-			pr_debug("%s i=%d p=%s reg=%d label=%s led_str=%s\n",
-				 __func__, idx + i, name, reg, label, led_str);
-			if (label)
-				mv88e6xxx_led_register(chip, led, reg, idx + i, name);
+				of_property_read_string(p, "label", &port_name);
+				of_property_read_u32(p, "reg", &reg);
+				name = kasprintf(GFP_KERNEL, "%s:%s", port_name, label);
+				function = LED_FUNCTION_TYPE_LINK_ACT;
+				if (strstr(label, LED_FUNCTION_STATE) != 0)
+					function = LED_FUNCTION_TYPE_STATE;
+				pr_debug("%s i=%d p=%s reg=%d label=%s led_str=%s function=%d\n",
+					__func__, i, name, reg, label, led_str, function);
+				mv88e6xxx_led_register(chip, led, reg, i, name, function);
+			}
+			else {
+				pr_debug("No %s definition for %s found", led_str, np->full_name);
+			}
 		}
-		idx += 2;
 	}
 	return 0;
 }
@@ -5033,6 +5105,7 @@ static const struct mv88e6xxx_ops mv88e6190_ops = {
 	.serdes_get_regs = mv88e6390_serdes_get_regs,
 	.gpio_ops = &mv88e6352_gpio_ops,
 	.phylink_get_caps = mv88e6390_phylink_get_caps,
+	.set_led = mv88e6390x_set_led,
 };
 
 static const struct mv88e6xxx_ops mv88e6190x_ops = {
@@ -5096,6 +5169,7 @@ static const struct mv88e6xxx_ops mv88e6190x_ops = {
 	.serdes_get_regs = mv88e6390_serdes_get_regs,
 	.gpio_ops = &mv88e6352_gpio_ops,
 	.phylink_get_caps = mv88e6390x_phylink_get_caps,
+	.set_led = mv88e6390x_set_led,
 };
 
 static const struct mv88e6xxx_ops mv88e6191_ops = {
@@ -5635,6 +5709,7 @@ static const struct mv88e6xxx_ops mv88e6352_ops = {
 	.serdes_get_regs = mv88e6352_serdes_get_regs,
 	.serdes_set_tx_amplitude = mv88e6352_serdes_set_tx_amplitude,
 	.phylink_get_caps = mv88e6352_phylink_get_caps,
+	.set_led = mv88e6352_set_led,
 };
 
 static const struct mv88e6xxx_ops mv88e6390_ops = {
@@ -5702,6 +5777,7 @@ static const struct mv88e6xxx_ops mv88e6390_ops = {
 	.serdes_get_regs_len = mv88e6390_serdes_get_regs_len,
 	.serdes_get_regs = mv88e6390_serdes_get_regs,
 	.phylink_get_caps = mv88e6390_phylink_get_caps,
+	.set_led = mv88e6390x_set_led,
 };
 
 static const struct mv88e6xxx_ops mv88e6390x_ops = {
@@ -5768,6 +5844,7 @@ static const struct mv88e6xxx_ops mv88e6390x_ops = {
 	.avb_ops = &mv88e6390_avb_ops,
 	.ptp_ops = &mv88e6352_ptp_ops,
 	.phylink_get_caps = mv88e6390x_phylink_get_caps,
+	.set_led = mv88e6390x_set_led,
 };
 
 static const struct mv88e6xxx_ops mv88e6393x_ops = {
@@ -5899,7 +5976,6 @@ static const struct mv88e6xxx_info mv88e6xxx_table[] = {
 		.g1_irqs = 8,
 		.g2_irqs = 10,
 		.use_g1_phy_irq = true,
-		.led_pos = -1,
 		.atu_move_port_mask = 0xf,
 		.pvt = true,
 		.multi_chip = true,
@@ -6491,6 +6567,7 @@ static const struct mv88e6xxx_info mv88e6xxx_table[] = {
 		.num_ports = 7,
 		.num_internal_phys = 5,
 		.num_gpio = 15,
+		.num_leds = 2,
 		.max_vid = 4095,
 		.max_sid = 63,
 		.port_base_addr = 0x10,
@@ -6500,7 +6577,6 @@ static const struct mv88e6xxx_info mv88e6xxx_table[] = {
 		.age_time_coeff = 15000,
 		.g1_irqs = 9,
 		.g2_irqs = 10,
-		.led_pos = 1,
 		.atu_move_port_mask = 0xf,
 		.pvt = true,
 		.multi_chip = true,
@@ -6517,6 +6593,7 @@ static const struct mv88e6xxx_info mv88e6xxx_table[] = {
 		.num_ports = 11,	/* 10 + Z80 */
 		.num_internal_phys = 9,
 		.num_gpio = 16,
+		.num_leds = 2,
 		.max_vid = 8191,
 		.max_sid = 63,
 		.port_base_addr = 0x0,
@@ -6542,6 +6619,7 @@ static const struct mv88e6xxx_info mv88e6xxx_table[] = {
 		.num_ports = 11,	/* 10 + Z80 */
 		.num_internal_phys = 9,
 		.num_gpio = 16,
+		.num_leds = 2,
 		.max_vid = 8191,
 		.max_sid = 63,
 		.port_base_addr = 0x0,
@@ -6551,7 +6629,6 @@ static const struct mv88e6xxx_info mv88e6xxx_table[] = {
 		.age_time_coeff = 3750,
 		.g1_irqs = 9,
 		.g2_irqs = 14,
-		.led_pos = 0,
 		.atu_move_port_mask = 0x1f,
 		.pvt = true,
 		.multi_chip = true,
@@ -7397,11 +7474,9 @@ static int mv88e6xxx_probe(struct mdio_device *mdiodev)
 	if (err)
 		goto out_mdio;
 
-	if (chip->info->led_pos >= 0) {
-		err = mv88e6xxx_leds_register(chip, np);
-		if (err)
-			goto out_mdio;
-	}
+	err = mv88e6xxx_leds_register(chip, np);
+	if (err)
+		goto out_mdio;
 
 	return 0;
 

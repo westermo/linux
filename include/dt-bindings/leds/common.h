@@ -97,5 +97,6 @@
 #define LED_FUNCTION_WAN "wan"
 #define LED_FUNCTION_WLAN "wlan"
 #define LED_FUNCTION_WPS "wps"
+#define LED_FUNCTION_STATE "state"
 
 #endif /* __DT_BINDINGS_LEDS_H */

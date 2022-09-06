@@ -130,6 +130,7 @@ struct mv88e6xxx_info {
 	unsigned int num_ports;
 	unsigned int num_internal_phys;
 	unsigned int num_gpio;
+	unsigned int num_leds;
 	unsigned int max_vid;
 	unsigned int max_sid;
 	unsigned int port_base_addr;
@@ -140,7 +141,6 @@ struct mv88e6xxx_info {
 	unsigned int g1_irqs;
 	unsigned int g2_irqs;
 	bool use_g1_phy_irq;
-	int led_pos;
 	bool pvt;
 
 	/* Mark certain ports as invalid. This is required for example for the
@@ -653,6 +653,8 @@ struct mv88e6xxx_ops {
 
 	/* Max Frame Size */
 	int (*set_max_frame_size)(struct mv88e6xxx_chip *chip, int mtu);
+
+	int (*set_led)(struct mv88e6xxx_chip *chip, int port, int index, int function);
 };
 
 struct mv88e6xxx_irq_ops {
