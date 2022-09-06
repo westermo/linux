@@ -3934,6 +3934,32 @@ static int mv88e6xxx_stats_setup(struct mv88e6xxx_chip *chip)
 	return mv88e6xxx_g1_stats_clear(chip);
 }
 
+static int mv88e6352_setup_errata(struct mv88e6xxx_chip *chip)
+{
+	int err = 0;
+	u16 reg;
+
+	/* Enable direct hash select for multicast on Agate. Workaround for switchcore (Agate) bug. */
+	/* Marvell errata : Please use the following setting for Global1 register 4, bit 11.
+	 * Bit 11 Hash RWR Hash Multicast.
+	 * When this bit  is cleared to a zero multicast MAC address Multicast lookups in the ATU are done
+	 * using the Direct HashSel setting reqardless of the current setting of the HashSel bits.
+	 * All unicast MAC address lookups use the current HashSel setting. When this bit is set to a one
+	 * all MAC address lookups in the ATU are done using the current HashSel setting. We tested the
+	 * above using 6352 DB and SOHO GUI and after setting the bit 11 the 5th multicast addressed was
+	 * accepted in the ATU. */
+	/* WeOS mantis #14132. */
+
+	err = mv88e6xxx_g1_read(chip, MV88E6XXX_G1_CTL1, &reg);
+	if (err)
+		return err;
+
+	reg |= MV88E6352_G1_CTL1_ATU_HASHSEL_BIT;
+
+	err = mv88e6xxx_g1_write(chip, MV88E6XXX_G1_CTL1, reg);
+	return err;
+}
+
 /* Check if the errata has already been applied. */
 static bool mv88e6390_setup_errata_applied(struct mv88e6xxx_chip *chip)
 {
@@ -5706,6 +5732,7 @@ static const struct mv88e6xxx_ops mv88e6351_ops = {
 
 static const struct mv88e6xxx_ops mv88e6352_ops = {
 	/* MV88E6XXX_FAMILY_6352 */
+	.setup_errata = mv88e6352_setup_errata,
 	.ieee_pri_map = mv88e6085_g1_ieee_pri_map,
 	.ip_pri_map = mv88e6085_g1_ip_pri_map,
 	.irl_init_all = mv88e6352_g2_irl_init_all,
