@@ -1433,6 +1433,46 @@ static int dsa_folded_mdb_del_router(struct dsa_port *dp)
 	return err;
 }
 
+static int dsa_folded_mdb_host_set_router(struct dsa_port *dp, bool enable)
+{
+	struct switchdev_obj_port_mdb mdb = {
+		.obj = {
+			.id = SWITCHDEV_OBJ_ID_PORT_MDB,
+		},
+	};
+	struct dsa_bridge *dbr = dp->bridge;
+	struct dsa_folded_mdb *fmdb;
+	struct dsa_mac_addr *a;
+	int err = 0;
+
+	mdb.obj.orig_dev = dbr->dev;
+
+	if (!dp->ds->fold_mrouters_into_mdb)
+		return 0;
+
+	mutex_lock(&dbr->folded_mdb.lock);
+
+	if (dbr->folded_mdb.host_mrouter == enable)
+		goto out_unlock;
+
+	dbr->folded_mdb.host_mrouter = enable;
+
+	list_for_each_entry(a, &dbr->folded_mdb.mdbs, list) {
+		fmdb = container_of(a, struct dsa_folded_mdb, addr);
+
+		memcpy(mdb.addr, a->addr, sizeof(mdb.addr));
+		mdb.vid = a->vid;
+
+		err = dsa_host_mdb_notify(dp->ds->dst, enable, dbr, &mdb);
+		if (err)
+			break;
+	}
+
+out_unlock:
+	mutex_unlock(&dbr->folded_mdb.lock);
+	return err;
+}
+
 static int dsa_port_mdb_notify(const struct dsa_port *dp, unsigned long e,
 			       const struct switchdev_obj_port_mdb *mdb)
 {
@@ -1634,6 +1674,12 @@ int dsa_port_mrouter_set(struct dsa_port *dp, bool mrouter,
 	}
 
 	return err;
+}
+
+int dsa_host_mrouter_set(struct dsa_port *dp, bool mrouter,
+			 struct netlink_ext_ack *extack)
+{
+	return dsa_folded_mdb_host_set_router(dp, mrouter);
 }
 
 int dsa_port_vlan_add(struct dsa_port *dp,

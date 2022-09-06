@@ -255,6 +255,7 @@ struct dsa_bridge {
 		struct mutex     lock;
 		struct list_head routers;
 		struct list_head mdbs;
+		bool             host_mrouter;
 	} folded_mdb;
 };
 
