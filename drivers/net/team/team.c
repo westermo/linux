@@ -80,6 +80,23 @@ void team_modeop_port_change_dev_addr(struct team *team,
 }
 EXPORT_SYMBOL(team_modeop_port_change_dev_addr);
 
+static void team_master_lower_state_changed(struct team *team)
+{
+	struct team_port *port;
+
+	struct netdev_lag_lower_state_info info = {
+		.link_up = false,
+		.tx_enabled = false
+	};
+
+	list_for_each_entry_rcu(port, &team->port_list, list) {
+		info.link_up = info.link_up || port->linkup;
+		info.tx_enabled = info.tx_enabled || team_port_enabled(port);
+	}
+
+	netdev_lower_state_changed(team->dev, &info);
+}
+
 static void team_lower_state_changed(struct team_port *port)
 {
 	struct netdev_lag_lower_state_info info;
@@ -87,6 +104,7 @@ static void team_lower_state_changed(struct team_port *port)
 	info.link_up = port->linkup;
 	info.tx_enabled = team_port_enabled(port);
 	netdev_lower_state_changed(port->dev, &info);
+	team_master_lower_state_changed(port->team);
 }
 
 static void team_refresh_port_linkup(struct team_port *port)
