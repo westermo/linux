@@ -1892,6 +1892,12 @@ static int mv88e6xxx_atu_setup(struct mv88e6xxx_chip *chip)
 			return err;
 	}
 
+	if (chip->info->ops->atu_setup) {
+		err = chip->info->ops->atu_setup(chip);
+		if (err)
+			return err;
+	}
+
 	return mv88e6xxx_g1_atu_set_age_time(chip, 300000);
 }
 
@@ -5908,6 +5914,7 @@ static const struct mv88e6xxx_ops mv88e6390x_ops = {
 	.rmu_disable = mv88e6390_g1_rmu_disable,
 	.atu_get_hash = mv88e6165_g1_atu_get_hash,
 	.atu_set_hash = mv88e6165_g1_atu_set_hash,
+	.atu_setup = mv88e6390_g1_atu_setup,
 	.vtu_getnext = mv88e6390_g1_vtu_getnext,
 	.vtu_loadpurge = mv88e6390_g1_vtu_loadpurge,
 	.stu_getnext = mv88e6390_g1_stu_getnext,
