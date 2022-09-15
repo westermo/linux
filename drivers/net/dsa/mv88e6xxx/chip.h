@@ -122,6 +122,12 @@ enum mv88e6xxx_edsa_support {
 	MV88E6XXX_EDSA_SUPPORTED,
 };
 
+enum mv88e6xxx_sched_mode {
+	MV88E6XXX_SCHED_MODE_DEFAULT = 0,
+	MV88E6XXX_SCHED_MODE_RR,
+	MV88E6XXX_SCHED_MODE_STRICT,
+};
+
 struct mv88e6xxx_ops;
 
 struct mv88e6xxx_info {
@@ -614,6 +620,7 @@ struct mv88e6xxx_ops {
 	int (*port_set_jumbo_size)(struct mv88e6xxx_chip *chip, int port,
 				   size_t size);
 
+	int (*port_set_sched_mode)(struct mv88e6xxx_chip *chip, int port, u8 mode);
 	int (*port_egress_rate_limiting)(struct mv88e6xxx_chip *chip, int port,
 					 u64 max_rate[16]);
 	int (*port_pause_limit)(struct mv88e6xxx_chip *chip, int port, u8 in,

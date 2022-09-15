@@ -1249,6 +1249,63 @@ int mv88e6xxx_port_set_mirror(struct mv88e6xxx_chip *chip, int port,
 	return err;
 }
 
+int mv88e6097_port_set_sched_mode(struct mv88e6xxx_chip *chip, int port,
+				  u8 mode)
+{
+	u16 port_mode;
+	int err;
+	u16 reg;
+
+	switch (mode) {
+	case MV88E6XXX_SCHED_MODE_RR:
+		port_mode = MV88E6097_PORT_EGRESS_RATE_CTL2_SCHEDULE_WEIGHTED_RR;
+		break;
+	case MV88E6XXX_SCHED_MODE_STRICT:
+		port_mode = MV88E6097_PORT_EGRESS_RATE_CTL2_SCHEDULE_STRICT;
+		break;
+	default:
+		return 0;
+	}
+
+	err = mv88e6xxx_port_read(chip, port, MV88E6XXX_PORT_EGRESS_RATE_CTL2,
+				  &reg);
+	if (err)
+		return err;
+
+	reg &= ~(MV88E6097_PORT_EGRESS_RATE_CTL2_SCHEDULE_MASK
+		 << MV88E6097_PORT_EGRESS_RATE_CTL2_SCHEDULE_SHIFT);
+
+	reg |= ((port_mode & MV88E6097_PORT_EGRESS_RATE_CTL2_SCHEDULE_MASK)
+		<< MV88E6097_PORT_EGRESS_RATE_CTL2_SCHEDULE_SHIFT);
+
+	return mv88e6xxx_port_write(chip, port, MV88E6XXX_PORT_EGRESS_RATE_CTL2,
+				    reg);
+}
+
+
+int mv88e6390_port_set_sched_mode(struct mv88e6xxx_chip *chip, int port,
+				  u8 mode)
+{
+	u16 port_mode;
+	u16 reg;
+
+	switch (mode) {
+	case MV88E6XXX_SCHED_MODE_RR:
+		port_mode = MV88E6390_PORT_QUEUE_CTL_PORT_SCHEDULE_WEIGHTED_RR;
+		break;
+	case MV88E6XXX_SCHED_MODE_STRICT:
+		port_mode = MV88E6390_PORT_QUEUE_CTL_PORT_SCHEDULE_STRICT;
+		break;
+	default:
+		return 0;
+	}
+
+	return mv88e6xxx_port_write(chip, port, MV88E6390_PORT_QUEUE_CTL,
+				    MV88E6390_PORT_QUEUE_CTL_UPDATE |
+				    MV88E6390_PORT_QUEUE_CTL_PORT_SCHEDULE |
+				    (mode & MV88E6390_PORT_QUEUE_CTL_DATA_MASK));
+}
+
 int mv88e6xxx_port_set_lock(struct mv88e6xxx_chip *chip, int port,
 			    bool locked)
 {

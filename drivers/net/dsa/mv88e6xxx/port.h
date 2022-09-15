@@ -224,7 +224,11 @@
 #define MV88E6XXX_PORT_EGRESS_RATE_CTL1		0x09
 
 /* Offset 0x0A: Egress Rate Control 2 */
-#define MV88E6XXX_PORT_EGRESS_RATE_CTL2		0x0a
+#define MV88E6XXX_PORT_EGRESS_RATE_CTL2				0x0a
+#define MV88E6097_PORT_EGRESS_RATE_CTL2_SCHEDULE_MASK		0x3
+#define MV88E6097_PORT_EGRESS_RATE_CTL2_SCHEDULE_WEIGHTED_RR	0x0
+#define MV88E6097_PORT_EGRESS_RATE_CTL2_SCHEDULE_STRICT		0x3
+#define MV88E6097_PORT_EGRESS_RATE_CTL2_SCHEDULE_SHIFT		12
 
 /* Offset 0x0B: Port Association Vector */
 #define MV88E6XXX_PORT_ASSOC_VECTOR			0x0b
@@ -334,6 +338,16 @@
 #define MV88E6XXX_PORT_RESERVED_1A_DATA_PORT	0x05
 #define MV88E6341_PORT_RESERVED_1A_FORCE_CMODE	0x8000
 #define MV88E6341_PORT_RESERVED_1A_SGMII_AN	0x2000
+
+/* Offset 0x1C: Queue Control */
+#define MV88E6390_PORT_QUEUE_CTL				0x1c
+#define MV88E6390_PORT_QUEUE_CTL_UPDATE				0x8000
+#define MV88E6390_PORT_QUEUE_CTL_PTR_MASK			0x7f00
+#define MV88E6390_PORT_QUEUE_CTL_DATA_MASK			0x00ff
+/* Offset 0x1C: Index 0x00: Schedule mode ptr */
+#define MV88E6390_PORT_QUEUE_CTL_PORT_SCHEDULE			0x0000
+#define MV88E6390_PORT_QUEUE_CTL_PORT_SCHEDULE_WEIGHTED_RR	0x0000
+#define MV88E6390_PORT_QUEUE_CTL_PORT_SCHEDULE_STRICT		0x0007
 
 int mv88e6xxx_port_read(struct mv88e6xxx_chip *chip, int port, int reg,
 			u16 *val);
@@ -473,4 +487,7 @@ int mv88e6xxx_port_set_prio_mode(struct mv88e6xxx_chip *chip, int port,
 				 u16 initial, bool ena);
 int mv88e6xxx_port_set_prio(struct mv88e6xxx_chip *chip, int port, u16 defpri);
 
+int mv88e6097_port_set_sched_mode(struct mv88e6xxx_chip *chip, int port,
+				  u8 sched_mode);
+int mv88e6390_port_set_sched_mode(struct mv88e6xxx_chip *chip, int port, u8 mode);
 #endif /* _MV88E6XXX_PORT_H */

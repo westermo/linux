@@ -3656,11 +3656,13 @@ static int mv88e6xxx_setup_port(struct mv88e6xxx_chip *chip, int port)
 {
 	struct device_node *phy_handle = NULL;
 	struct dsa_switch *ds = chip->ds;
+	const char *scheduling_label;
 	struct dsa_port *dp;
 	u64 max_rate[16];
 	int tx_amp;
 	int err;
 	u16 reg;
+	u8 mode;
 
 	chip->ports[port].chip = chip;
 	chip->ports[port].port = port;
@@ -3791,6 +3793,27 @@ static int mv88e6xxx_setup_port(struct mv88e6xxx_chip *chip, int port)
 		err = chip->info->ops->port_set_jumbo_size(chip, port, 10218);
 		if (err)
 			return err;
+	}
+
+	/* Set priority scheduling mode */
+	if (chip->info->ops->port_set_sched_mode) {
+		dp = dsa_to_port(ds, port);
+		if (dp) {
+			err = of_property_read_string(dp->dn, "scheduling-mode",
+						      &scheduling_label);
+			if (!err) {
+				if (!strcmp(scheduling_label, "round-robin"))
+					mode = MV88E6XXX_SCHED_MODE_RR;
+				else if (!strcmp(scheduling_label, "strict"))
+					mode = MV88E6XXX_SCHED_MODE_STRICT;
+				else
+					mode = MV88E6XXX_SCHED_MODE_DEFAULT;
+
+				err = chip->info->ops->port_set_sched_mode(chip, port, mode);
+				if (err)
+					return err;
+			}
+		}
 	}
 
 	/* Port Association Vector: disable automatic address learning
@@ -4721,6 +4744,7 @@ static const struct mv88e6xxx_ops mv88e6097_ops = {
 	.stu_getnext = mv88e6352_g1_stu_getnext,
 	.stu_loadpurge = mv88e6352_g1_stu_loadpurge,
 	.set_max_frame_size = mv88e6185_g1_set_max_frame_size,
+	.port_set_sched_mode = mv88e6097_port_set_sched_mode,
 };
 
 static const struct mv88e6xxx_ops mv88e6123_ops = {
@@ -5864,6 +5888,7 @@ static const struct mv88e6xxx_ops mv88e6352_ops = {
 	.serdes_set_tx_amplitude = mv88e6352_serdes_set_tx_amplitude,
 	.phylink_get_caps = mv88e6352_phylink_get_caps,
 	.set_led = mv88e6352_set_led,
+	.port_set_sched_mode = mv88e6097_port_set_sched_mode,
 };
 
 static const struct mv88e6xxx_ops mv88e6390_ops = {
@@ -5933,6 +5958,7 @@ static const struct mv88e6xxx_ops mv88e6390_ops = {
 	.serdes_get_regs = mv88e6390_serdes_get_regs,
 	.phylink_get_caps = mv88e6390_phylink_get_caps,
 	.set_led = mv88e6390x_set_led,
+	.port_set_sched_mode = mv88e6390_port_set_sched_mode,
 };
 
 static const struct mv88e6xxx_ops mv88e6390x_ops = {
@@ -6002,6 +6028,7 @@ static const struct mv88e6xxx_ops mv88e6390x_ops = {
 	.ptp_ops = &mv88e6352_ptp_ops,
 	.phylink_get_caps = mv88e6390x_phylink_get_caps,
 	.set_led = mv88e6390x_set_led,
+	.port_set_sched_mode = mv88e6390_port_set_sched_mode,
 };
 
 static const struct mv88e6xxx_ops mv88e6393x_ops = {
