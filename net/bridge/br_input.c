@@ -169,7 +169,8 @@ int br_handle_frame_finish(struct net *net, struct sock *sk, struct sk_buff *skb
 			}
 			mcast_hit = true;
 		} else {
-			if (br_opt_get(br, BROPT_MCAST_FLOOD)) {
+			if (br_opt_get(br, BROPT_MCAST_FLOOD) ||
+			    br_multicast_is_router(brmctx, skb)) {
 				local_rcv = true;
 				br->dev->stats.multicast++;
 			}
