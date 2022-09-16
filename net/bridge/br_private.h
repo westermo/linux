@@ -1046,6 +1046,10 @@ br_multicast_is_router(struct net_bridge_mcast *brmctx, struct sk_buff *skb)
 {
 	switch (brmctx->multicast_router) {
 	case MDB_RTR_TYPE_PERM:
+		if (skb)
+			return skb->protocol == htons(ETH_P_IP) ||
+				skb->protocol == htons(ETH_P_IPV6);
+
 		return true;
 	case MDB_RTR_TYPE_TEMP_QUERY:
 		if (skb) {
