@@ -10,6 +10,7 @@
 #include <linux/notifier.h>
 #include <linux/of_mdio.h>
 #include <linux/of_net.h>
+#include <linux/leds.h>
 
 #include "dsa_priv.h"
 
@@ -135,6 +136,13 @@ int dsa_port_set_state(struct dsa_port *dp, u8 state, bool do_fast_age)
 		     state == BR_STATE_BLOCKING ||
 		     state == BR_STATE_LISTENING))
 			dsa_port_fast_age(dp);
+	}
+
+	if (dp->type == DSA_PORT_TYPE_USER) {
+		if (dp->slave->phydev && dp->slave->phydev->link && state == BR_STATE_BLOCKING)
+			led_trigger_event(dp->led_stp, LED_FULL);
+		else
+			led_trigger_event(dp->led_stp, LED_OFF);
 	}
 
 	dp->stp_state = state;

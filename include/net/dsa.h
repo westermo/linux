@@ -296,6 +296,7 @@ struct dsa_port {
 	unsigned int		ageing_time;
 
 	struct dsa_bridge	*bridge;
+	struct led_trigger	*led_stp;
 	struct devlink_port	devlink_port;
 	struct phylink		*pl;
 	struct phylink_config	pl_config;

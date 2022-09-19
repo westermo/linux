@@ -21,6 +21,7 @@
 #include <linux/if_hsr.h>
 #include <net/dcbnl.h>
 #include <linux/netpoll.h>
+#include <linux/leds.h>
 
 #include "dsa_priv.h"
 
@@ -2339,6 +2340,7 @@ int dsa_slave_create(struct dsa_port *port)
 	struct net_device *slave_dev;
 	struct dsa_slave_priv *p;
 	int ret;
+	char *trig_name;
 
 	if (!ds->num_tx_queues)
 		ds->num_tx_queues = 1;
@@ -2427,6 +2429,9 @@ int dsa_slave_create(struct dsa_port *port)
 
 	if (ret)
 		goto out_unregister;
+
+	trig_name = kasprintf(GFP_KERNEL, "%s-stp", port->name);
+	led_trigger_register_simple(trig_name, &port->led_stp);
 
 	return 0;
 
