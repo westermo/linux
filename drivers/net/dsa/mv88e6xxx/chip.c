@@ -943,8 +943,7 @@ static void mv88e6390_phylink_get_caps(struct mv88e6xxx_chip *chip, int port,
 	mv88e6xxx_translate_cmode(chip->ports[port].cmode, supported);
 
 	/* No ethtool bits for 200Mbps */
-	config->mac_capabilities = MAC_SYM_PAUSE | MAC_10 | MAC_100 |
-				   MAC_1000FD;
+	config->mac_capabilities = MAC_SYM_PAUSE | MAC_10 | MAC_100 | MAC_1000;
 
 	/* The C_Mode field is programmable on ports 9 and 10 */
 	if (port == 9 || port == 10) {
