@@ -3854,10 +3854,22 @@ static int mv88e6xxx_setup_port(struct mv88e6xxx_chip *chip, int port)
 			return err;
 	}
 
-	if (chip->info->ops->port_disable_pri_override) {
-		err = chip->info->ops->port_disable_pri_override(chip, port);
+	/* TODO, needs to be configured */
+	if (chip->info->ops->port_set_pri_override) {
+		err = chip->info->ops->port_set_pri_override(chip, port,
+							     DA_QPRI_OVERRIDE
+							     | DA_FPRI_OVERRIDE
+							     | SA_QPRI_OVERRIDE
+							     | SA_FPRI_OVERRIDE);
 		if (err)
 			return err;
+	} else {
+		if (chip->info->ops->port_disable_pri_override) {
+			err = chip->info->ops->port_disable_pri_override(chip,
+									 port);
+			if (err)
+				return err;
+		}
 	}
 
 	if (chip->info->ops->port_tag_remap) {
@@ -5916,6 +5928,7 @@ static const struct mv88e6xxx_ops mv88e6390_ops = {
 	.port_egress_rate_limiting = mv88e6390_port_egress_rate_limiting,
 	.port_pause_limit = mv88e6390_port_pause_limit,
 	.port_disable_learn_limit = mv88e6xxx_port_disable_learn_limit,
+	.port_set_pri_override = mv88e6xxx_port_set_pri_override,
 	.port_disable_pri_override = mv88e6xxx_port_disable_pri_override,
 	.port_get_cmode = mv88e6352_port_get_cmode,
 	.port_set_cmode = mv88e6390_port_set_cmode,
@@ -5986,6 +5999,7 @@ static const struct mv88e6xxx_ops mv88e6390x_ops = {
 	.port_egress_rate_limiting = mv88e6390_port_egress_rate_limiting,
 	.port_pause_limit = mv88e6390_port_pause_limit,
 	.port_disable_learn_limit = mv88e6xxx_port_disable_learn_limit,
+	.port_set_pri_override = mv88e6xxx_port_set_pri_override,
 	.port_disable_pri_override = mv88e6xxx_port_disable_pri_override,
 	.port_get_cmode = mv88e6352_port_get_cmode,
 	.port_set_cmode = mv88e6390x_port_set_cmode,

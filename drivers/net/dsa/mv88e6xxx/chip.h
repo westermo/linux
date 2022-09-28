@@ -630,6 +630,13 @@ struct mv88e6xxx_ops {
 	int (*port_pause_limit)(struct mv88e6xxx_chip *chip, int port, u8 in,
 				u8 out);
 	int (*port_disable_learn_limit)(struct mv88e6xxx_chip *chip, int port);
+
+#define SA_FPRI_OVERRIDE	BIT(12)
+#define SA_QPRI_OVERRIDE	BIT(13)
+#define DA_FPRI_OVERRIDE	BIT(14)
+#define DA_QPRI_OVERRIDE	BIT(15)
+
+	int (*port_set_pri_override)(struct mv88e6xxx_chip *chip, int port, u16 value);
 	int (*port_disable_pri_override)(struct mv88e6xxx_chip *chip, int port);
 	int (*port_setup_message_port)(struct mv88e6xxx_chip *chip, int port);
 

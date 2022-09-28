@@ -475,6 +475,7 @@ int mv88e6xxx_port_set_mirror(struct mv88e6xxx_chip *chip, int port,
 			      bool mirror);
 
 int mv88e6xxx_port_disable_learn_limit(struct mv88e6xxx_chip *chip, int port);
+int mv88e6xxx_port_set_pri_override(struct mv88e6xxx_chip *chip, int port, u16 value);
 int mv88e6xxx_port_disable_pri_override(struct mv88e6xxx_chip *chip, int port);
 
 int mv88e6xxx_port_hidden_write(struct mv88e6xxx_chip *chip, int block,
