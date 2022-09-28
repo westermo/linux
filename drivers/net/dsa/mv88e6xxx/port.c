@@ -1826,10 +1826,11 @@ int mv88e6xxx_port_set_prio_mode(struct mv88e6xxx_chip *chip, int port,
 	if (err)
 		return err;
 
+	/* WeOS supports one priority-mode only */
+	reg &= ~(MV88E6185_PORT_CTL0_USE_IP | MV88E6185_PORT_CTL0_USE_TAG);
+
 	if (ena)
 		reg |= initial;
-	else
-		reg &= ~(MV88E6185_PORT_CTL0_USE_IP | MV88E6185_PORT_CTL0_USE_TAG);
 
 	return mv88e6xxx_port_write(chip, port, MV88E6XXX_PORT_CTL0, reg);
 }
