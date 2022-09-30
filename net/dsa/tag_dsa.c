@@ -224,6 +224,8 @@ static int dsa_inband_rcv_ll(struct sk_buff *skb, struct net_device *dev)
 	source_device = dsa_header[0] & 0x1f;
 	source_port = (dsa_header[1] >> 3) & 0x1f;
 	ds = dsa_switch_find(ds->dst->index, source_device);
+        if (!ds)
+                return 0;
 
 	/* Get rcv seqno */
 	rcv_seqno = dsa_header[3];
