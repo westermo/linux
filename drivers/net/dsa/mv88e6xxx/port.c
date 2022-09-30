@@ -1289,7 +1289,6 @@ int mv88e6390_port_set_sched_mode(struct mv88e6xxx_chip *chip, int port,
 				  u8 mode)
 {
 	u16 port_mode;
-	u16 reg;
 
 	switch (mode) {
 	case MV88E6XXX_SCHED_MODE_RR:
