@@ -663,6 +663,16 @@ errout:
 	rtnl_set_sk_err(net, RTNLGRP_MDB, err);
 }
 
+/* When mapping IPv4 multicast addresses to MAC addresses only the 23 least
+ * significant bits are used. That means that in an L2 switch core the range
+ * 224.0.0.x - 239.0.0.x as well as 224.128.0.x - 239.128.0.x map to the same
+ * MAC adress as local multicast (224.0.0.x): 01:00:5e:00:00:xx.
+ */
+static bool ipv4_is_overlapping_local_multicast(__be32 addr)
+{
+	return (addr & htonl(0xf07fff00)) == htonl(0xe0000000);
+}
+
 static bool is_valid_mdb_entry(struct br_mdb_entry *entry,
 			       struct netlink_ext_ack *extack)
 {
@@ -679,6 +689,9 @@ static bool is_valid_mdb_entry(struct br_mdb_entry *entry,
 		if (ipv4_is_local_multicast(entry->addr.u.ip4)) {
 			NL_SET_ERR_MSG_MOD(extack, "IPv4 entry group address is local multicast");
 			return false;
+		}
+		if (ipv4_is_overlapping_local_multicast(entry->addr.u.ip4)) {
+			NL_SET_ERR_MSG_MOD(extack, "Group's L2 address overlaps with a reserved group, skipping offload");
 		}
 #if IS_ENABLED(CONFIG_IPV6)
 	} else if (entry->addr.proto == htons(ETH_P_IPV6)) {

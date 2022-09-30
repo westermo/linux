@@ -191,11 +191,20 @@ static size_t switchdev_obj_size(const struct switchdev_obj *obj)
 	return 0;
 }
 
+static inline bool ether_addr_is_ipv4_local_mcast(const u8 *addr)
+{
+	u8 base[ETH_ALEN] = { 0x01, 0x00, 0x5e, 0x00, 0x00, 0x00 };
+	u8 mask[ETH_ALEN] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0x00 };
+
+	return ether_addr_equal_masked(addr, base, mask);
+}
+
 static int switchdev_port_obj_notify(enum switchdev_notifier_type nt,
 				     struct net_device *dev,
 				     const struct switchdev_obj *obj,
 				     struct netlink_ext_ack *extack)
 {
+	struct switchdev_obj_port_mdb *mdb;
 	int rc;
 	int err;
 
@@ -203,6 +212,15 @@ static int switchdev_port_obj_notify(enum switchdev_notifier_type nt,
 		.obj = obj,
 		.handled = false,
 	};
+
+	if ((nt == SWITCHDEV_PORT_OBJ_ADD) || (nt == SWITCHDEV_PORT_OBJ_DEL)) {
+		mdb = SWITCHDEV_OBJ_PORT_MDB(obj);
+		/* Local IPv4 multicast (224.0.0.x) should be flooded according
+		 * to flooding settings
+		 */
+		if (ether_addr_is_ipv4_local_mcast(mdb->addr))
+			return -EOPNOTSUPP;
+	}
 
 	rc = call_switchdev_blocking_notifiers(nt, dev, &obj_info.info, extack);
 	err = notifier_to_errno(rc);
