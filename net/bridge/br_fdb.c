@@ -581,8 +581,21 @@ void br_fdb_delete_by_port(struct net_bridge *br,
 			   u16 vid,
 			   int do_all)
 {
+	struct switchdev_attr attr = {
+		.id = SWITCHDEV_ATTR_ID_PORT_FDB_FLUSH,
+		.flags = SWITCHDEV_F_DEFER,
+	};
 	struct net_bridge_fdb_entry *f;
 	struct hlist_node *tmp;
+	int err;
+
+	if (p) {
+		attr.orig_dev = p->dev,
+		err = switchdev_port_attr_set(p->dev, &attr, NULL);
+		if (err && err != -EOPNOTSUPP)
+	 		br_warn(p->br, "error flushing fdb on port %s: %d\n",
+				netdev_name(p->dev), err);
+	}
 
 	spin_lock_bh(&br->hash_lock);
 	hlist_for_each_entry_safe(f, tmp, &br->fdb_list, fdb_node) {
