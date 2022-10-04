@@ -2870,6 +2870,59 @@ static int mv88e6xxx_broadcast_setup(struct mv88e6xxx_chip *chip, u16 vid)
 	return 0;
 }
 
+static int mv88e6xxx_port_add_default_flooding(struct mv88e6xxx_chip *chip,
+					       int port, u16 vid)
+{
+	u8 state = MV88E6XXX_G1_ATU_DATA_STATE_MC_STATIC;
+	u8 addr[][ETH_ALEN] = {
+		{ 0x01, 0x00, 0x5e, 0x00, 0x00, 0x01 },	/* 224.0.0.1	All hosts*/
+		{ 0x01, 0x00, 0x5e, 0x00, 0x00, 0x02 },	/* 224.0.0.2	All routers*/
+		{ 0x01, 0x00, 0x5e, 0x00, 0x00, 0x05 },	/* 224.0.0.5	OSPF */
+		{ 0x01, 0x00, 0x5e, 0x00, 0x00, 0x06 },	/* 224.0.0.6	OSPF */
+		{ 0x01, 0x00, 0x5e, 0x00, 0x00, 0x09 },	/* 224.0.0.9	RIPv2 */
+		{ 0x01, 0x00, 0x5e, 0x00, 0x00, 0x0d },	/* 224.0.0.13	PIM */
+		{ 0x01, 0x00, 0x5e, 0x00, 0x00, 0x12 },	/* 224.0.0.18	VRRP*/
+		{ 0x01, 0x00, 0x5e, 0x00, 0x00, 0x16 },	/* 224.0.0.22	IGMP */
+		{ 0x01, 0x00, 0x5e, 0x00, 0x00, 0x18 },	/* 224.0.0.24	OSPF */
+		{ 0x01, 0x00, 0x5e, 0x00, 0x00, 0x6a },	/* 224.0.0.106	All snoopers */
+		{ 0x01, 0x00, 0x5e, 0x00, 0x00, 0x6b },	/* 224.0.0.107	PTP-pdelay */
+		{ 0x01, 0x00, 0x5e, 0x00, 0x00, 0xfb },	/* 224.0.0.251	mDNS */
+		{ 0x01, 0x00, 0x5e, 0x00, 0x00, 0xfc },	/* 224.0.0.252	Link-local Multicast Name Resolution */
+	};
+	int err;
+	int i;
+
+	for (i = 0; i < (sizeof(addr) / sizeof(addr[0])); i++) {
+		err = mv88e6xxx_port_db_load_purge(chip, port, addr[i], vid,
+						   state);
+		if (err)
+			return err;
+	}
+
+	return 0;
+}
+
+/* Adds ATU entries for selected addresses in the local IPv4 multicast block,
+ * for supported services for which traffic should be flooded regardless of
+ * other flooding settings.
+ */
+static int mv88e6xxx_default_flooding_setup(struct mv88e6xxx_chip *chip, u16 vid)
+{
+	int port;
+	int err;
+
+	for (port = 0; port < mv88e6xxx_num_ports(chip); port++) {
+		if (dsa_is_unused_port(chip->ds, port))
+			continue;
+
+		err = mv88e6xxx_port_add_default_flooding(chip, port, vid);
+		if (err)
+			return err;
+	}
+
+	return 0;
+}
+
 struct mv88e6xxx_port_broadcast_sync_ctx {
 	int port;
 	bool flood;
@@ -2952,6 +3005,10 @@ static int mv88e6xxx_port_vlan_join(struct mv88e6xxx_chip *chip, int port,
 			return err;
 
 		err = mv88e6xxx_broadcast_setup(chip, vlan.vid);
+		if (err)
+			return err;
+
+		err = mv88e6xxx_default_flooding_setup(chip, vlan.vid);
 		if (err)
 			return err;
 	} else if (vlan.member[port] != member) {
@@ -4358,6 +4415,10 @@ static int mv88e6xxx_setup(struct dsa_switch *ds)
 		goto unlock;
 
 	err = mv88e6xxx_broadcast_setup(chip, 0);
+	if (err)
+		goto unlock;
+
+	err = mv88e6xxx_default_flooding_setup(chip, 0);
 	if (err)
 		goto unlock;
 
