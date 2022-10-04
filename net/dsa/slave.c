@@ -525,6 +525,10 @@ static int dsa_slave_port_attr_set(struct net_device *dev, const void *ctx,
 
 		ret = dsa_host_mrouter_set(dp, attr->u.mrouter, extack);
 		break;
+	case SWITCHDEV_ATTR_ID_PORT_FDB_FLUSH:
+		dsa_port_fast_age(dp);
+		ret = 0;
+		break;
 	default:
 		ret = -EOPNOTSUPP;
 		break;

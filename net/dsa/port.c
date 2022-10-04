@@ -48,7 +48,7 @@ static void dsa_port_notify_bridge_fdb_flush(const struct dsa_port *dp, u16 vid)
 				 brport_dev, &info.info, NULL);
 }
 
-static void dsa_port_fast_age(const struct dsa_port *dp)
+void dsa_port_fast_age(const struct dsa_port *dp)
 {
 	struct dsa_switch *ds = dp->ds;
 
@@ -56,6 +56,11 @@ static void dsa_port_fast_age(const struct dsa_port *dp)
 		return;
 
 	ds->ops->port_fast_age(ds, dp->index);
+}
+
+static void dsa_port_fast_age_notify(const struct dsa_port *dp)
+{
+	dsa_port_fast_age(dp);
 
 	/* flush all VLANs */
 	dsa_port_notify_bridge_fdb_flush(dp, 0);
@@ -135,7 +140,7 @@ int dsa_port_set_state(struct dsa_port *dp, u8 state, bool do_fast_age)
 		    (state == BR_STATE_DISABLED ||
 		     state == BR_STATE_BLOCKING ||
 		     state == BR_STATE_LISTENING))
-			dsa_port_fast_age(dp);
+			dsa_port_fast_age_notify(dp);
 	}
 
 	if (dp->type == DSA_PORT_TYPE_USER) {
@@ -883,7 +888,7 @@ int dsa_port_bridge_flags(struct dsa_port *dp,
 		if ((dp->learning && !learning) &&
 		    (dp->stp_state == BR_STATE_LEARNING ||
 		     dp->stp_state == BR_STATE_FORWARDING))
-			dsa_port_fast_age(dp);
+			dsa_port_fast_age_notify(dp);
 
 		dp->learning = learning;
 	}
