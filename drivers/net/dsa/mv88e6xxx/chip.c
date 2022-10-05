@@ -3242,10 +3242,6 @@ static int mv88e6xxx_port_db_dump_fid(struct mv88e6xxx_chip *chip,
 	bool is_static;
 	int err;
 
-	if (chip->rmu.ops->dump_fid)
-		return chip->rmu.ops->dump_fid(chip, fid, vid,
-					       port, cb, data);
-
 	addr.state = 0;
 	eth_broadcast_addr(addr.mac);
 

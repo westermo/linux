@@ -344,9 +344,6 @@ struct mv88e6xxx_rmu {
 	struct net_device *netdev;
 	struct mv88e6xxx_bus_ops *ops;
 	struct completion completion;
-	struct sk_buff *resp;
-	struct sk_buff_head atu_skbs;
-	unsigned long resp_time;
 	/* Mutex for RMU operations */
 	struct mutex mutex;
 	u16 got_id;
@@ -549,9 +546,6 @@ struct mv88e6xxx_bus_ops {
 	int (*write)(struct mv88e6xxx_chip *chip, int addr, int reg, u16 val);
 	int (*init)(struct mv88e6xxx_chip *chip);
 	int (*get_rmon)(struct mv88e6xxx_chip *chip, int port, uint64_t *data);
-	int (*dump_fid)(struct mv88e6xxx_chip *chip,
-			u16 fid, u16 vid, int port,
-			dsa_fdb_dump_cb_t *cb, void *data);
 };
 
 struct mv88e6xxx_mdio_bus {
