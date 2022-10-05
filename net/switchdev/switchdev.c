@@ -166,13 +166,11 @@ static int switchdev_port_attr_set_defer(struct net_device *dev,
  *	in case SWITCHDEV_F_DEFER flag is not set.
  */
 int switchdev_port_attr_set(struct net_device *dev,
-			    const struct switchdev_attr *attr,
+			    struct switchdev_attr *attr,
 			    struct netlink_ext_ack *extack)
 {
-	if (attr->flags & SWITCHDEV_F_DEFER)
-		return switchdev_port_attr_set_defer(dev, attr);
-	ASSERT_RTNL();
-	return switchdev_port_attr_set_now(dev, attr, extack);
+	attr->flags |= SWITCHDEV_F_DEFER;
+	return switchdev_port_attr_set_defer(dev, attr);
 }
 EXPORT_SYMBOL_GPL(switchdev_port_attr_set);
 
@@ -267,14 +265,11 @@ static int switchdev_port_obj_add_defer(struct net_device *dev,
  *	in case SWITCHDEV_F_DEFER flag is not set.
  */
 int switchdev_port_obj_add(struct net_device *dev,
-			   const struct switchdev_obj *obj,
+			   struct switchdev_obj *obj,
 			   struct netlink_ext_ack *extack)
 {
-	if (obj->flags & SWITCHDEV_F_DEFER)
-		return switchdev_port_obj_add_defer(dev, obj);
-	ASSERT_RTNL();
-	return switchdev_port_obj_notify(SWITCHDEV_PORT_OBJ_ADD,
-					 dev, obj, extack);
+	obj->flags |= SWITCHDEV_F_DEFER;
+	return switchdev_port_obj_add_defer(dev, obj);
 }
 EXPORT_SYMBOL_GPL(switchdev_port_obj_add);
 
@@ -316,12 +311,10 @@ static int switchdev_port_obj_del_defer(struct net_device *dev,
  *	in case SWITCHDEV_F_DEFER flag is not set.
  */
 int switchdev_port_obj_del(struct net_device *dev,
-			   const struct switchdev_obj *obj)
+			   struct switchdev_obj *obj)
 {
-	if (obj->flags & SWITCHDEV_F_DEFER)
-		return switchdev_port_obj_del_defer(dev, obj);
-	ASSERT_RTNL();
-	return switchdev_port_obj_del_now(dev, obj);
+	obj->flags |= SWITCHDEV_F_DEFER;
+	return switchdev_port_obj_del_defer(dev, obj);
 }
 EXPORT_SYMBOL_GPL(switchdev_port_obj_del);
 
