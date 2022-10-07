@@ -183,6 +183,21 @@ static size_t switchdev_obj_size(const struct switchdev_obj *obj)
 		return sizeof(struct switchdev_obj_port_mdb);
 	case SWITCHDEV_OBJ_ID_HOST_MDB:
 		return sizeof(struct switchdev_obj_port_mdb);
+
+	case SWITCHDEV_OBJ_ID_MRP:
+		return sizeof(struct switchdev_obj_mrp);
+	case SWITCHDEV_OBJ_ID_RING_ROLE_MRP:
+		return sizeof(struct switchdev_obj_ring_role_mrp);
+	case SWITCHDEV_OBJ_ID_RING_TEST_MRP:
+		return sizeof(struct switchdev_obj_ring_test_mrp);
+	case SWITCHDEV_OBJ_ID_RING_STATE_MRP:
+		return sizeof(struct switchdev_obj_ring_state_mrp);
+	case SWITCHDEV_OBJ_ID_IN_ROLE_MRP:
+		return sizeof(struct switchdev_obj_in_role_mrp);
+	case SWITCHDEV_OBJ_ID_IN_STATE_MRP:
+		return sizeof(struct switchdev_obj_in_state_mrp);
+	case SWITCHDEV_OBJ_ID_IN_TEST_MRP:
+		return sizeof(struct switchdev_obj_in_test_mrp);
 	default:
 		BUG();
 	}
