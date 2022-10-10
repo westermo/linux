@@ -288,6 +288,17 @@ int switchdev_port_obj_add(struct net_device *dev,
 }
 EXPORT_SYMBOL_GPL(switchdev_port_obj_add);
 
+int switchdev_port_obj_add_not_defer(struct net_device *dev,
+			   struct switchdev_obj *obj,
+			   struct netlink_ext_ack *extack)
+{
+	ASSERT_RTNL();
+	return switchdev_port_obj_notify(SWITCHDEV_PORT_OBJ_ADD,
+					 dev, obj, extack);
+}
+EXPORT_SYMBOL_GPL(switchdev_port_obj_add_not_defer);
+
+
 static int switchdev_port_obj_del_now(struct net_device *dev,
 				      const struct switchdev_obj *obj)
 {
@@ -332,6 +343,14 @@ int switchdev_port_obj_del(struct net_device *dev,
 	return switchdev_port_obj_del_defer(dev, obj);
 }
 EXPORT_SYMBOL_GPL(switchdev_port_obj_del);
+
+int switchdev_port_obj_del_not_defer(struct net_device *dev,
+			   struct switchdev_obj *obj)
+{
+	ASSERT_RTNL();
+	return switchdev_port_obj_del_now(dev, obj);
+}
+EXPORT_SYMBOL_GPL(switchdev_port_obj_del_not_defer);
 
 static ATOMIC_NOTIFIER_HEAD(switchdev_notif_chain);
 static BLOCKING_NOTIFIER_HEAD(switchdev_blocking_notif_chain);

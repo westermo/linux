@@ -308,8 +308,13 @@ int switchdev_port_attr_set(struct net_device *dev,
 int switchdev_port_obj_add(struct net_device *dev,
 			   struct switchdev_obj *obj,
 			   struct netlink_ext_ack *extack);
+int switchdev_port_obj_add_not_defer(struct net_device *dev,
+				     struct switchdev_obj *obj,
+				     struct netlink_ext_ack *extack);
 int switchdev_port_obj_del(struct net_device *dev,
 			   struct switchdev_obj *obj);
+int switchdev_port_obj_del_not_defer(struct net_device *dev,
+				     struct switchdev_obj *obj);
 
 int register_switchdev_notifier(struct notifier_block *nb);
 int unregister_switchdev_notifier(struct notifier_block *nb);
