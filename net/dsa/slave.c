@@ -1369,9 +1369,6 @@ static int dsa_slave_setup_tc_cls_matchall(struct net_device *dev,
 					   struct tc_cls_matchall_offload *cls,
 					   bool ingress)
 {
-	if (cls->common.chain_index)
-		return -EOPNOTSUPP;
-
 	switch (cls->command) {
 	case TC_CLSMATCHALL_REPLACE:
 		return dsa_slave_add_cls_matchall(dev, cls, ingress);
