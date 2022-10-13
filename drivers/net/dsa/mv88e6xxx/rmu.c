@@ -262,7 +262,7 @@ int mv88e6xxx_rmu_stats_get(struct mv88e6xxx_chip *chip, int port,
 
 	dump_mib[0] = cpu_to_be16(RMU_FORMAT_1);
 	dump_mib[2] = cpu_to_be16(RMU_CODE_DUMP_MIB);
-	dump_mib[3] = FIELD_PREP(RMU_STATS_GET_PORT_MASK, port);
+	dump_mib[3] = cpu_to_be16(FIELD_PREP(RMU_STATS_GET_PORT_MASK, port));
 
 	/* Send a GET_MIB command */
 	mutex_lock(&chip->rmu.mutex);
