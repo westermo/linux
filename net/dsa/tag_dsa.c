@@ -303,9 +303,30 @@ static struct sk_buff *dsa_xmit_ll(struct sk_buff *skb, struct net_device *dev,
 
 		dsa_header[0] = (cmd << 6) | tag_dev;
 		dsa_header[1] = tag_port << 3;
-		dsa_header[2] = vid >> 8;
+		dsa_header[2] = skb->priority << 5 | vid >> 8;
 		dsa_header[3] = vid & 0xff;
 	}
+
+	return skb;
+}
+
+static inline struct dsa_port *dsa_port_find(struct net_device *dev,
+					     int source_device, int source_port)
+{
+	struct dsa_port *cpu_dp = dev->dsa_ptr;
+	struct dsa_switch *ds;
+
+	ds = dsa_switch_find(cpu_dp->dst->index, source_device);
+	if (ds)
+		return dsa_to_port(ds, source_port);
+
+	return NULL;
+}
+
+static inline struct sk_buff *dsa_strip_dsa_header(struct sk_buff *skb, int extra)
+{
+	skb_pull_rcsum(skb, DSA_HLEN);
+	dsa_strip_etype_header(skb, DSA_HLEN + extra);
 
 	return skb;
 }
@@ -315,8 +336,11 @@ static struct sk_buff *dsa_rcv_ll(struct sk_buff *skb, struct net_device *dev,
 {
 	bool trap = false, trunk = false, trap_mrp = false;
 	int source_device, source_port;
+	struct net_device *br_dev;
+	struct dsa_port *dp;
 	enum dsa_code code;
 	enum dsa_cmd cmd;
+	u8 new_header[4];
 	u8 *dsa_header;
 	u16 ethertype;
 
@@ -422,43 +446,56 @@ static struct sk_buff *dsa_rcv_ll(struct sk_buff *skb, struct net_device *dev,
 
 	/* If the 'tagged' bit is set; convert the DSA tag to a 802.1Q
 	 * tag, and delete the ethertype (extra) if applicable. If the
-	 * 'tagged' bit is cleared; delete the DSA tag, and ethertype
-	 * if applicable.
+	 * 'tagged' bit is cleared; create a priority tagged 802.1Q tag,
+	 * and remove ethertype if applicable.
+	 * If port is standalone strip DSA header.
 	 */
-	if (dsa_header[0] & 0x20) {
-		u8 new_header[4];
 
-		/* Insert 802.1Q ethertype and copy the VLAN-related
-		 * fields, but clear the bit that will hold CFI (since
-		 * DSA uses that bit location for another purpose).
-		 */
-		new_header[0] = (ETH_P_8021Q >> 8) & 0xff;
-		new_header[1] = ETH_P_8021Q & 0xff;
+	/* Insert 802.1Q ethertype and copy the VLAN-related
+	 * fields, but clear the bit that will hold CFI (since
+	 * DSA uses that bit location for another purpose).
+	 */
+
+	new_header[0] = (ETH_P_8021Q >> 8) & 0xff;
+	new_header[1] = ETH_P_8021Q & 0xff;
+
+	/* Tagged? */
+	if (dsa_header[0] & 0x20) {
 		new_header[2] = dsa_header[2] & ~0x10;
 		new_header[3] = dsa_header[3];
-
-		/* Move CFI bit from its place in the DSA header to
-		 * its 802.1Q-designated place.
-		 */
-		if (dsa_header[1] & 0x01)
-			new_header[2] |= 0x10;
-
-		/* Update packet checksum if skb is CHECKSUM_COMPLETE. */
-		if (skb->ip_summed == CHECKSUM_COMPLETE) {
-			__wsum c = skb->csum;
-			c = csum_add(c, csum_partial(new_header + 2, 2, 0));
-			c = csum_sub(c, csum_partial(dsa_header + 2, 2, 0));
-			skb->csum = c;
-		}
-
-		memcpy(dsa_header, new_header, DSA_HLEN);
-
-		if (extra)
-			dsa_strip_etype_header(skb, extra);
 	} else {
-		skb_pull_rcsum(skb, DSA_HLEN);
-		dsa_strip_etype_header(skb, DSA_HLEN + extra);
+		dp = dsa_port_find(dev, source_device, source_port);
+		if (!dp)
+			return dsa_strip_dsa_header(skb, extra);
+
+		br_dev = dsa_port_bridge_dev_get(dp);
+		if (!(br_dev && br_vlan_enabled(br_dev)))
+			return dsa_strip_dsa_header(skb, extra);
+
+		/* Move priority field and zero out VID[11:8]*/
+		new_header[2] = dsa_header[2] & 0xe0;
+		/* VID[7:0] = zero */
+		new_header[3] = 0;
 	}
+
+	/* Move CFI bit from its place in the DSA header to
+	 * its 802.1Q-designated place.
+	 */
+	if (dsa_header[1] & 0x01)
+		new_header[2] |= 0x10;
+
+	/* Update packet checksum if skb is CHECKSUM_COMPLETE. */
+	if (skb->ip_summed == CHECKSUM_COMPLETE) {
+		__wsum c = skb->csum;
+		c = csum_add(c, csum_partial(new_header + 2, 2, 0));
+		c = csum_sub(c, csum_partial(dsa_header + 2, 2, 0));
+		skb->csum = c;
+	}
+
+	memcpy(dsa_header, new_header, DSA_HLEN);
+
+	if (extra)
+		dsa_strip_etype_header(skb, extra);
 
 	return skb;
 }
