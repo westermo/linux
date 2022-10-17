@@ -303,18 +303,13 @@ void switchdev_bridge_port_unoffload(struct net_device *brport_dev,
 
 void switchdev_deferred_process(void);
 int switchdev_port_attr_set(struct net_device *dev,
-			    struct switchdev_attr *attr,
+			    const struct switchdev_attr *attr,
 			    struct netlink_ext_ack *extack);
 int switchdev_port_obj_add(struct net_device *dev,
-			   struct switchdev_obj *obj,
+			   const struct switchdev_obj *obj,
 			   struct netlink_ext_ack *extack);
-int switchdev_port_obj_add_not_defer(struct net_device *dev,
-				     struct switchdev_obj *obj,
-				     struct netlink_ext_ack *extack);
 int switchdev_port_obj_del(struct net_device *dev,
-			   struct switchdev_obj *obj);
-int switchdev_port_obj_del_not_defer(struct net_device *dev,
-				     struct switchdev_obj *obj);
+			   const struct switchdev_obj *obj);
 
 int register_switchdev_notifier(struct notifier_block *nb);
 int unregister_switchdev_notifier(struct notifier_block *nb);

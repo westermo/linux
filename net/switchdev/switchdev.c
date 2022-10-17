@@ -166,11 +166,13 @@ static int switchdev_port_attr_set_defer(struct net_device *dev,
  *	in case SWITCHDEV_F_DEFER flag is not set.
  */
 int switchdev_port_attr_set(struct net_device *dev,
-			    struct switchdev_attr *attr,
+			    const struct switchdev_attr *attr,
 			    struct netlink_ext_ack *extack)
 {
-	attr->flags |= SWITCHDEV_F_DEFER;
-	return switchdev_port_attr_set_defer(dev, attr);
+	if (attr->flags & SWITCHDEV_F_DEFER)
+		return switchdev_port_attr_set_defer(dev, attr);
+	ASSERT_RTNL();
+	return switchdev_port_attr_set_now(dev, attr, extack);
 }
 EXPORT_SYMBOL_GPL(switchdev_port_attr_set);
 
@@ -183,21 +185,6 @@ static size_t switchdev_obj_size(const struct switchdev_obj *obj)
 		return sizeof(struct switchdev_obj_port_mdb);
 	case SWITCHDEV_OBJ_ID_HOST_MDB:
 		return sizeof(struct switchdev_obj_port_mdb);
-
-	case SWITCHDEV_OBJ_ID_MRP:
-		return sizeof(struct switchdev_obj_mrp);
-	case SWITCHDEV_OBJ_ID_RING_ROLE_MRP:
-		return sizeof(struct switchdev_obj_ring_role_mrp);
-	case SWITCHDEV_OBJ_ID_RING_TEST_MRP:
-		return sizeof(struct switchdev_obj_ring_test_mrp);
-	case SWITCHDEV_OBJ_ID_RING_STATE_MRP:
-		return sizeof(struct switchdev_obj_ring_state_mrp);
-	case SWITCHDEV_OBJ_ID_IN_ROLE_MRP:
-		return sizeof(struct switchdev_obj_in_role_mrp);
-	case SWITCHDEV_OBJ_ID_IN_STATE_MRP:
-		return sizeof(struct switchdev_obj_in_state_mrp);
-	case SWITCHDEV_OBJ_ID_IN_TEST_MRP:
-		return sizeof(struct switchdev_obj_in_test_mrp);
 	default:
 		BUG();
 	}
@@ -280,24 +267,16 @@ static int switchdev_port_obj_add_defer(struct net_device *dev,
  *	in case SWITCHDEV_F_DEFER flag is not set.
  */
 int switchdev_port_obj_add(struct net_device *dev,
-			   struct switchdev_obj *obj,
+			   const struct switchdev_obj *obj,
 			   struct netlink_ext_ack *extack)
 {
-	obj->flags |= SWITCHDEV_F_DEFER;
-	return switchdev_port_obj_add_defer(dev, obj);
-}
-EXPORT_SYMBOL_GPL(switchdev_port_obj_add);
-
-int switchdev_port_obj_add_not_defer(struct net_device *dev,
-			   struct switchdev_obj *obj,
-			   struct netlink_ext_ack *extack)
-{
+	if (obj->flags & SWITCHDEV_F_DEFER)
+		return switchdev_port_obj_add_defer(dev, obj);
 	ASSERT_RTNL();
 	return switchdev_port_obj_notify(SWITCHDEV_PORT_OBJ_ADD,
 					 dev, obj, extack);
 }
-EXPORT_SYMBOL_GPL(switchdev_port_obj_add_not_defer);
-
+EXPORT_SYMBOL_GPL(switchdev_port_obj_add);
 
 static int switchdev_port_obj_del_now(struct net_device *dev,
 				      const struct switchdev_obj *obj)
@@ -337,20 +316,14 @@ static int switchdev_port_obj_del_defer(struct net_device *dev,
  *	in case SWITCHDEV_F_DEFER flag is not set.
  */
 int switchdev_port_obj_del(struct net_device *dev,
-			   struct switchdev_obj *obj)
+			   const struct switchdev_obj *obj)
 {
-	obj->flags |= SWITCHDEV_F_DEFER;
-	return switchdev_port_obj_del_defer(dev, obj);
-}
-EXPORT_SYMBOL_GPL(switchdev_port_obj_del);
-
-int switchdev_port_obj_del_not_defer(struct net_device *dev,
-			   struct switchdev_obj *obj)
-{
+	if (obj->flags & SWITCHDEV_F_DEFER)
+		return switchdev_port_obj_del_defer(dev, obj);
 	ASSERT_RTNL();
 	return switchdev_port_obj_del_now(dev, obj);
 }
-EXPORT_SYMBOL_GPL(switchdev_port_obj_del_not_defer);
+EXPORT_SYMBOL_GPL(switchdev_port_obj_del);
 
 static ATOMIC_NOTIFIER_HEAD(switchdev_notif_chain);
 static BLOCKING_NOTIFIER_HEAD(switchdev_blocking_notif_chain);
