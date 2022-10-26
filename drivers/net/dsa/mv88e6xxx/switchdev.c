@@ -242,7 +242,7 @@ bool mv88e6xxx_atu_locked_entry_find_purge(struct dsa_switch *ds, int port,
 	p = &chip->ports[port];
 	mutex_lock(&p->ale_list_lock);
 	list_for_each_entry_safe(ale, tmp, &p->ale_list, list) {
-		if (ether_addr_equal(ale->mac, addr) == 0) {
+		if (ether_addr_equal(ale->mac, addr)) {
 			if (ale->vid == vid) {
 				mv88e6xxx_atu_locked_entry_purge(ale, false, false);
 				p->ale_cnt--;
