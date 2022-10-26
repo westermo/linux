@@ -171,16 +171,23 @@ int mv88e6xxx_handle_violation(struct mv88e6xxx_chip *chip, int port,
 	else
 		return -ENODATA;
 
+	dp = dsa_to_port(chip->ds, port);
+	brport = dsa_port_to_bridge_port(dp);
+	if (!brport)
+		return -ENODEV;
+
 	switch (type) {
 	case MV88E6XXX_G1_ATU_OP_AGE_OUT_VIOLATION:
 		entry->portvec &= ~BIT(port);
 		entry->state = MV88E6XXX_G1_ATU_DATA_STATE_UC_UNUSED;
 		entry->trunk = false;
+		mv88e6xxx_reg_lock(chip);
 		err = mv88e6xxx_g1_atu_loadpurge(chip, fid, entry);
 		mv88e6xxx_reg_unlock(chip);
 		rtnl_lock();
 		err = call_switchdev_notifiers(SWITCHDEV_FDB_DEL_TO_BRIDGE,
 					       brport, &info.info, NULL);
+		rtnl_unlock();
 		break;
 	case MV88E6XXX_G1_ATU_OP_MISS_VIOLATION:
 		mutex_lock(&p->ale_list_lock);
@@ -197,7 +204,6 @@ int mv88e6xxx_handle_violation(struct mv88e6xxx_chip *chip, int port,
 			goto fail;
 		mv88e6xxx_reg_unlock(chip);
 
-		dp = dsa_to_port(chip->ds, port);
 		err = mv88e6xxx_new_atu_locked_entry(chip, entry->mac, port, fid,
 						     info.vid, &ale);
 		if (err)
@@ -209,11 +215,6 @@ int mv88e6xxx_handle_violation(struct mv88e6xxx_chip *chip, int port,
 		mutex_unlock(&p->ale_list_lock);
 
 		rtnl_lock();
-		brport = dsa_port_to_bridge_port(dp);
-		if (!brport) {
-			rtnl_unlock();
-			return -ENODEV;
-		}
 		err = call_switchdev_notifiers(SWITCHDEV_FDB_ADD_TO_BRIDGE,
 					       brport, &info.info, NULL);
 		rtnl_unlock();

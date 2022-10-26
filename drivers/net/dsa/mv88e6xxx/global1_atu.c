@@ -468,9 +468,25 @@ static irqreturn_t mv88e6xxx_g1_atu_prob_irq_thread_fn(int irq, void *dev_id)
 	spid = entry.state;
 
 	if (val & MV88E6XXX_G1_ATU_OP_AGE_OUT_VIOLATION) {
+		unsigned long port = 0;
+		unsigned long portvec = entry.portvec;
+
+		port = _find_first_bit(&portvec, 16);
+		if (port >= 16) {
+			dev_err_ratelimited(chip->dev,
+						"ATU problem for age out violation %pM, port not found in portvec %x\n",
+						entry.mac, entry.portvec);
+			goto out;
+		}
+
+		spid = port;
 		dev_err_ratelimited(chip->dev,
 				    "ATU age out violation for %pM\n",
 				    entry.mac);
+		err = mv88e6xxx_handle_violation(chip, spid, &entry, fid,
+						 MV88E6XXX_G1_ATU_OP_AGE_OUT_VIOLATION);
+		if (err)
+			goto out;
 	}
 
 	if (val & MV88E6XXX_G1_ATU_OP_MEMBER_VIOLATION) {
