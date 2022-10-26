@@ -3143,6 +3143,10 @@ static int mv88e6xxx_port_vlan_del(struct dsa_switch *ds, int port,
 	if (!mv88e6xxx_max_vid(chip))
 		return -EOPNOTSUPP;
 
+        /* Before vlan is removed the switchdev pending work also has to
+	   be executed snd the the dsa workqueue can be flushed */
+	switchdev_deferred_process();
+
 	/* The ATU removal procedure needs the FID to be mapped in the VTU,
 	 * but FDB deletion runs concurrently with VLAN deletion. Flush the DSA
 	 * switchdev workqueue to ensure that all FDB entries are deleted
