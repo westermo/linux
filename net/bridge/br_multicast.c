@@ -1375,7 +1375,8 @@ __br_multicast_add_group(struct net_bridge_mcast *brmctx,
 	struct net_bridge_mdb_entry *mp;
 	unsigned long now = jiffies;
 
-	if (!br_multicast_ctx_should_use(brmctx, pmctx))
+	if (!(pmctx && rcu_access_pointer(pmctx->port->backup_port)) &&
+	    !br_multicast_ctx_should_use(brmctx, pmctx))
 		goto out;
 
 	mp = br_multicast_new_group(brmctx->br, group);
@@ -1964,7 +1965,8 @@ static void __br_multicast_disable_port_ctx(struct net_bridge_mcast_port *pmctx)
 		if (!(pg->flags & MDB_PG_FLAGS_PERMANENT) &&
 		    (!br_multicast_port_ctx_is_vlan(pmctx) ||
 		     pg->key.addr.vid == pmctx->vlan->vid))
-			br_multicast_find_del_pg(pmctx->port->br, pg);
+			if (!rcu_access_pointer(pmctx->port->backup_port))
+				br_multicast_find_del_pg(pmctx->port->br, pg);
 
 	del |= br_ip4_multicast_rport_del(pmctx);
 	del_timer(&pmctx->ip4_mc_router_timer);
@@ -3776,10 +3778,10 @@ static int br_multicast_ipv6_rcv(struct net_bridge_mcast *brmctx,
 }
 #endif
 
-int br_multicast_rcv(struct net_bridge_mcast **brmctx,
-		     struct net_bridge_mcast_port **pmctx,
-		     struct net_bridge_vlan *vlan,
-		     struct sk_buff *skb, u16 vid)
+int __br_multicast_rcv(struct net_bridge_mcast **brmctx,
+		       struct net_bridge_mcast_port **pmctx,
+		       struct net_bridge_vlan *vlan,
+		       struct sk_buff *skb, u16 vid)
 {
 	int ret = 0;
 
@@ -3821,6 +3823,51 @@ int br_multicast_rcv(struct net_bridge_mcast **brmctx,
 	}
 
 	return ret;
+}
+
+int br_multicast_rcv(struct net_bridge_mcast **brmctx,
+		     struct net_bridge_mcast_port **pmctx,
+		     struct net_bridge_vlan *vlan,
+		     struct sk_buff *skb, u16 vid)
+{
+	struct net_bridge_mcast_port *bpmctx;
+	struct net_bridge_port *bp;
+	struct sk_buff *bskb;
+	struct net_bridge_vlan_group *vg;
+	struct net_bridge_vlan *bvlan;
+
+	if (!(*pmctx))
+		/* Bridge interface never has a backup port */
+		goto rcv;
+
+	bp = rcu_dereference((*pmctx)->port->backup_port);
+#if IS_ENABLED(CONFIG_IPV6)
+	if (!bp || (ip_mc_check_igmp(skb) && ipv6_mc_check_mld(skb)))
+		goto rcv;
+#else
+	if (!bp || ip_mc_check_igmp(skb))
+		goto rcv;
+#endif
+	/* We're receiving a multicast control message on a port with
+	 * a configured backup port. Inject a copy on the backup port
+	 * so that router port status and group memberships are kept
+	 * in sync between the two.
+	 */
+
+	bskb = skb_clone(skb, GFP_ATOMIC);
+	if (!bskb)
+		goto rcv;
+
+	bskb->dev = bp->dev;
+	bpmctx = &bp->multicast_ctx;
+	vg = nbp_vlan_group_rcu(bp);
+	bvlan = br_vlan_find(vg, vid);
+
+	__br_multicast_rcv(brmctx, &bpmctx, bvlan, bskb, vid);
+	kfree_skb(bskb);
+
+rcv:
+	return __br_multicast_rcv(brmctx, pmctx, vlan, skb, vid);
 }
 
 static void br_multicast_query_expired(struct net_bridge_mcast *brmctx,
