@@ -30,7 +30,7 @@ void mv88e6xxx_add_fdb_synth_learned(struct dsa_switch *ds,
 	brport = dsa_port_to_bridge_port(dp);
 
 	if (brport)
-		call_switchdev_notifiers(SWITCHDEV_FDB_ADD_TO_BRIDGE,
+		call_switchdev_notifiers(SWITCHDEV_FDB_OFFLOADED,
 					 brport, &info.info, NULL);
 }
 

@@ -539,7 +539,8 @@ void br_fdb_cleanup(struct work_struct *work)
 		unsigned long this_timer = f->updated + delay;
 
 		if (test_bit(BR_FDB_STATIC, &f->flags) ||
-		    test_bit(BR_FDB_ADDED_BY_EXT_LEARN, &f->flags)) {
+		    test_bit(BR_FDB_ADDED_BY_EXT_LEARN, &f->flags) ||
+			test_bit(BR_FDB_OFFLOADED, &f->flags)) {
 			if (test_bit(BR_FDB_NOTIFY, &f->flags)) {
 				if (time_after(this_timer, now))
 					work_delay = min(work_delay,
@@ -1343,7 +1344,8 @@ int br_fdb_external_learn_del(struct net_bridge *br, struct net_bridge_port *p,
 	spin_lock_bh(&br->hash_lock);
 
 	fdb = br_fdb_find(br, addr, vid);
-	if (fdb && test_bit(BR_FDB_ADDED_BY_EXT_LEARN, &fdb->flags))
+	if (fdb && (test_bit(BR_FDB_ADDED_BY_EXT_LEARN, &fdb->flags)
+		|| (test_bit(BR_FDB_ADDED_BY_USER, &fdb->flags) && test_bit(BR_FDB_OFFLOADED , &fdb->flags))))
 		fdb_delete(br, fdb, swdev_notify);
 	else
 		err = -ENOENT;
