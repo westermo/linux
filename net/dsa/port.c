@@ -48,6 +48,42 @@ static void dsa_port_notify_bridge_fdb_flush(const struct dsa_port *dp, u16 vid)
 				 brport_dev, &info.info, NULL);
 }
 
+static int dsa_port_to_flush(const struct dsa_port *dest_dp, struct dsa_port *src_dp)
+{
+	struct dsa_switch *src_ds = src_dp->ds;
+	struct dsa_port *dp;
+	int port;
+
+	/* Only interested to flush ports(dsa) between switch cores */
+	if (!dsa_port_is_dsa(src_dp))
+	    return 0;
+
+	port = dsa_towards_port(src_ds, dest_dp->ds->index, dest_dp->index);
+	dp = dsa_to_port(src_ds, port);
+
+        /* Is this the dsa port towards our destination port */
+	if (!(src_dp == dp))
+		return 0;
+
+	return 1;
+}
+
+static void dsa_flush_dsa_towards_port(const struct dsa_port *dest_dp)
+{
+	struct dsa_switch_tree *dst = dest_dp->ds->dst;
+	struct dsa_port *src_dp;
+
+	list_for_each_entry(src_dp, &dst->ports, list) {
+		struct dsa_switch *src_ds = src_dp->ds;
+
+		if (!dsa_port_to_flush(dest_dp, src_dp) && !dsa_port_is_cpu(src_dp))
+		    continue;
+
+		if (src_ds->ops->port_fast_age)
+		    src_ds->ops->port_fast_age(src_ds, src_dp->index);
+	}
+}
+
 void dsa_port_fast_age(const struct dsa_port *dp)
 {
 	struct dsa_switch *ds = dp->ds;
@@ -56,6 +92,8 @@ void dsa_port_fast_age(const struct dsa_port *dp)
 		return;
 
 	ds->ops->port_fast_age(ds, dp->index);
+
+	dsa_flush_dsa_towards_port(dp);
 }
 
 static void dsa_port_fast_age_notify(const struct dsa_port *dp)
