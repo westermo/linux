@@ -2851,7 +2851,7 @@ static int mv88e6xxx_port_update_mcast_flood(struct mv88e6xxx_chip *chip,
 	return chip->info->ops->port_set_mcast_flood(chip, port, flood);
 }
 
-static int mv88e6xxx_port_add_broadcast(struct mv88e6xxx_chip *chip, int port,
+static int mv88e6xxx_port_add_broadcast(struct mv88e6xxx_chip *chip, int portvec,
 					u16 vid)
 {
 	u8 state = MV88E6XXX_G1_ATU_DATA_STATE_MC_STATIC;
@@ -2859,11 +2859,13 @@ static int mv88e6xxx_port_add_broadcast(struct mv88e6xxx_chip *chip, int port,
 
 	eth_broadcast_addr(broadcast);
 
-	return mv88e6xxx_port_db_load_purge(chip, port, broadcast, vid, state);
+	return mv88e6xxx_portvec_db_load_purge(chip, portvec, broadcast, vid,
+					       state);
 }
 
 static int mv88e6xxx_broadcast_setup(struct mv88e6xxx_chip *chip, u16 vid)
 {
+	u16 portvec = 0;
 	int port;
 	int err;
 
@@ -2881,7 +2883,11 @@ static int mv88e6xxx_broadcast_setup(struct mv88e6xxx_chip *chip, u16 vid)
 			 */
 			continue;
 
-		err = mv88e6xxx_port_add_broadcast(chip, port, vid);
+		portvec |= BIT(port);
+	}
+
+	if (portvec) {
+		err = mv88e6xxx_port_add_broadcast(chip, portvec, vid);
 		if (err)
 			return err;
 	}
