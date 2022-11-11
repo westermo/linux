@@ -2485,9 +2485,9 @@ mv88e6xxx_port_vlan_prepare(struct dsa_switch *ds, int port,
 	return err;
 }
 
-static int mv88e6xxx_port_db_load_purge(struct mv88e6xxx_chip *chip, int port,
-					const unsigned char *addr, u16 vid,
-					u8 state)
+static int mv88e6xxx_do_port_db_load_purge(struct mv88e6xxx_chip *chip,
+					   u16 portvec, const unsigned char *addr,
+					   u16 vid, u8 state)
 {
 	struct mv88e6xxx_atu_entry entry;
 	struct mv88e6xxx_vtu_entry vlan;
@@ -2531,7 +2531,7 @@ static int mv88e6xxx_port_db_load_purge(struct mv88e6xxx_chip *chip, int port,
 
 	/* Purge the ATU entry only if no port is using it anymore */
 	if (!state) {
-		entry.portvec &= ~BIT(port);
+		entry.portvec &= ~portvec;
 		if (!entry.portvec)
 			entry.state = 0;
 	} else {
@@ -2557,14 +2557,33 @@ static int mv88e6xxx_port_db_load_purge(struct mv88e6xxx_chip *chip, int port,
 		 */
 		if ((state == MV88E6XXX_G1_ATU_DATA_STATE_UC_STATIC) &&
 		    !is_multicast_ether_addr(addr))
-			entry.portvec = BIT(port);
+			entry.portvec = portvec;
 		else
-			entry.portvec |= BIT(port);
+			entry.portvec |= portvec;
 
 		entry.state = state;
 	}
 
 	return mv88e6xxx_g1_atu_loadpurge(chip, fid, &entry);
+}
+
+static int mv88e6xxx_port_db_load_purge(struct mv88e6xxx_chip *chip, int port,
+					const unsigned char *addr, u16 vid,
+					u8 state)
+{
+	u16 portvec = 0;
+
+	portvec = BIT(port);
+
+	return mv88e6xxx_do_port_db_load_purge(chip, portvec, addr, vid, state);
+}
+
+static int mv88e6xxx_portvec_db_load_purge(struct mv88e6xxx_chip *chip,
+					   u16 portvec,
+					   const unsigned char *addr, u16 vid,
+					   u8 state)
+{
+	return mv88e6xxx_do_port_db_load_purge(chip, portvec, addr, vid, state);
 }
 
 static int mv88e6xxx_policy_apply(struct mv88e6xxx_chip *chip, int port,
