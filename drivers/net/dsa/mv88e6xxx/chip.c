@@ -2890,7 +2890,7 @@ static int mv88e6xxx_broadcast_setup(struct mv88e6xxx_chip *chip, u16 vid)
 }
 
 static int mv88e6xxx_port_add_default_flooding(struct mv88e6xxx_chip *chip,
-					       int port, u16 vid)
+					       u16 portvec, u16 vid)
 {
 	u8 state = MV88E6XXX_G1_ATU_DATA_STATE_MC_STATIC;
 	u8 addr[][ETH_ALEN] = {
@@ -2912,8 +2912,8 @@ static int mv88e6xxx_port_add_default_flooding(struct mv88e6xxx_chip *chip,
 	int i;
 
 	for (i = 0; i < (sizeof(addr) / sizeof(addr[0])); i++) {
-		err = mv88e6xxx_port_db_load_purge(chip, port, addr[i], vid,
-						   state);
+		err = mv88e6xxx_portvec_db_load_purge(chip, portvec, addr[i],
+						      vid, state);
 		if (err)
 			return err;
 	}
@@ -2927,6 +2927,7 @@ static int mv88e6xxx_port_add_default_flooding(struct mv88e6xxx_chip *chip,
  */
 static int mv88e6xxx_default_flooding_setup(struct mv88e6xxx_chip *chip, u16 vid)
 {
+	u16 portvec = 0;
 	int port;
 	int err;
 
@@ -2934,7 +2935,11 @@ static int mv88e6xxx_default_flooding_setup(struct mv88e6xxx_chip *chip, u16 vid
 		if (dsa_is_unused_port(chip->ds, port))
 			continue;
 
-		err = mv88e6xxx_port_add_default_flooding(chip, port, vid);
+		portvec |= BIT(port);
+	}
+
+	if (portvec) {
+		err = mv88e6xxx_port_add_default_flooding(chip, portvec, vid);
 		if (err)
 			return err;
 	}
