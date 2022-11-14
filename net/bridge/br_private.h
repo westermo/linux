@@ -320,6 +320,7 @@ struct net_bridge_port_group {
 	unsigned char			filter_mode;
 	unsigned char			grp_query_rexmit_cnt;
 	unsigned char			rt_protocol;
+	bool				switchdev_notified;
 
 	struct hlist_head		src_list;
 	unsigned int			src_ents;

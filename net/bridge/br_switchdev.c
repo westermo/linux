@@ -625,6 +625,8 @@ void br_switchdev_mdb_notify(struct net_device *dev,
 	mdb.obj.orig_dev = pg->key.port->dev;
 	switch (type) {
 	case RTM_NEWMDB:
+		if (pg->switchdev_notified)
+			break;
 		complete_info = kmalloc(sizeof(*complete_info), GFP_ATOMIC);
 		if (!complete_info)
 			break;
@@ -634,6 +636,8 @@ void br_switchdev_mdb_notify(struct net_device *dev,
 		mdb.obj.complete = br_switchdev_mdb_complete;
 		if (switchdev_port_obj_add(pg->key.port->dev, &mdb.obj, NULL))
 			kfree(complete_info);
+		else
+			pg->switchdev_notified = true;
 		break;
 	case RTM_DELMDB:
 		switchdev_port_obj_del(pg->key.port->dev, &mdb.obj);
