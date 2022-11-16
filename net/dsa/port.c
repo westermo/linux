@@ -1250,7 +1250,7 @@ static int dsa_folded_mdb_notify_routers(const struct dsa_port *dp, bool add,
 
 		err = dsa_host_mdb_notify(dp->ds->dst, add, dbr, &rp_mdb);
 		if (err) {
-			dev_err(rp->ds->dev,
+			dev_err(dp->ds->dev,
 				"folded_mdb: Unable to %s host router port: %d\n",
 				add ? "add" : "remove", err);
 			return err;
