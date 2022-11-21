@@ -1477,6 +1477,11 @@ int phy_attach_direct(struct net_device *dev, struct phy_device *phydev,
 
 	phy_led_triggers_register(phydev);
 
+	/* Force link down at attach, we'll resume the phy
+	 * later when we order the device up.
+	 */
+	phy_suspend(phydev);
+
 	return err;
 
 error:
