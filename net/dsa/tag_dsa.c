@@ -290,6 +290,8 @@ static struct sk_buff *dsa_xmit_ll(struct sk_buff *skb, struct net_device *dev,
 			dsa_header[1] |= 0x01;
 			dsa_header[2] &= ~0x10;
 		}
+
+		dsa_header[2] |= (skb->priority << 5);
 	} else if (skb->protocol != htons(ETH_P_RMU_DSA)) {
 		u16 vid;
 
