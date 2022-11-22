@@ -444,6 +444,7 @@ static int sparx5_init_coreclock(struct sparx5 *sparx5)
 		else if (sparx5->coreclock != SPX5_CORE_CLOCK_625MHZ)
 			freq = 0; /* Not supported */
 		break;
+	case SPX5_TARGET_CT_546:
 	case SPX5_TARGET_CT_7546TSN:
 		if (sparx5->coreclock == SPX5_CORE_CLOCK_DEFAULT)
 			freq = SPX5_CORE_CLOCK_625MHZ;

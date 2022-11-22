@@ -24,6 +24,7 @@
 
 /* Target chip type */
 enum spx5_target_chiptype {
+	SPX5_TARGET_CT_546     = 0x546,
 	SPX5_TARGET_CT_7546    = 0x7546,  /* SparX-5-64  Enterprise */
 	SPX5_TARGET_CT_7549    = 0x7549,  /* SparX-5-90  Enterprise */
 	SPX5_TARGET_CT_7552    = 0x7552,  /* SparX-5-128 Enterprise */

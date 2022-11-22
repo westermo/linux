@@ -53,6 +53,7 @@ struct sparx5_calendar_data {
 static u32 sparx5_target_bandwidth(struct sparx5 *sparx5)
 {
 	switch (sparx5->target_ct) {
+	case SPX5_TARGET_CT_546:
 	case SPX5_TARGET_CT_7546:
 	case SPX5_TARGET_CT_7546TSN:
 		return 65000;
