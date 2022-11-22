@@ -10,10 +10,15 @@
 
 #include "sparx5_main_regs.h"
 #include "sparx5_main.h"
+#include "sparx5_vcap_impl.h"
+#include "vcap_api_client.h"
+#include "sparx5_tc.h"
 
 #define SPARX5_MAX_PTP_ID	512
 
 #define TOD_ACC_PIN		0x4
+
+#define SPARX5_PTP_RULE_ID_OFFSET 2048
 
 enum {
 	PTP_PIN_ACTION_IDLE = 0,
@@ -74,22 +79,323 @@ static u64 sparx5_ptp_get_nominal_value(struct sparx5 *sparx5)
 	return res;
 }
 
+#define SPARX5_PTP_TRAP_RULES_CNT	5
+static struct vcap_rule *sparx5_ptp_add_l2_key(struct sparx5_port *port)
+{
+	int rule_id = SPARX5_PTP_RULE_ID_OFFSET +
+		      port->portno * SPARX5_PTP_TRAP_RULES_CNT + 0;
+	int chain_id = SPARX5_VCAP_CID_IS2_L0;
+	int prio = (port->portno << 8) + 1;
+	struct vcap_rule *vrule;
+	int err;
+
+	vrule = vcap_alloc_rule(port->sparx5->vcap_ctrl, port->ndev, chain_id, VCAP_USER_PTP, prio, rule_id);
+	if (!vrule || IS_ERR(vrule))
+		return NULL;
+
+	err = vcap_rule_add_key_u32(vrule, VCAP_KF_ETYPE, ETH_P_1588, ~0);
+	if (err) {
+		vcap_del_rule(port->sparx5->vcap_ctrl, port->ndev, rule_id);
+		return NULL;
+	}
+
+	return vrule;
+}
+
+static struct vcap_rule *sparx5_ptp_add_ipv4_event_key(struct sparx5_port *port)
+{
+	int rule_id = SPARX5_PTP_RULE_ID_OFFSET +
+		      port->portno * SPARX5_PTP_TRAP_RULES_CNT + 1;
+	int chain_id = SPARX5_VCAP_CID_IS2_L1;
+	int prio = (port->portno << 8) + 1;
+	struct vcap_rule *vrule;
+	int err;
+
+	vrule = vcap_alloc_rule(port->sparx5->vcap_ctrl, port->ndev, chain_id, VCAP_USER_PTP, prio, rule_id);
+	if (!vrule || IS_ERR(vrule))
+		return NULL;
+
+	err = vcap_rule_add_key_u32(vrule, VCAP_KF_L4_DPORT, 319, ~0);
+	if (err) {
+		vcap_del_rule(port->sparx5->vcap_ctrl, port->ndev, rule_id);
+		return NULL;
+	}
+
+	return vrule;
+}
+
+static struct vcap_rule *sparx5_ptp_add_ipv4_general_key(struct sparx5_port *port)
+{
+	int rule_id = SPARX5_PTP_RULE_ID_OFFSET +
+		      port->portno * SPARX5_PTP_TRAP_RULES_CNT + 2;
+	int chain_id = SPARX5_VCAP_CID_IS2_L1;
+	int prio = (port->portno << 8) + 1;
+	struct vcap_rule *vrule;
+	int err;
+
+	vrule = vcap_alloc_rule(port->sparx5->vcap_ctrl, port->ndev, chain_id, VCAP_USER_PTP, prio, rule_id);
+	if (!vrule || IS_ERR(vrule))
+		return NULL;
+
+	err = vcap_rule_add_key_u32(vrule, VCAP_KF_L4_DPORT, 320, ~0);
+	if (err) {
+		vcap_del_rule(port->sparx5->vcap_ctrl, port->ndev, rule_id);
+		return NULL;
+	}
+
+	return vrule;
+}
+
+static struct vcap_rule *sparx5_ptp_add_ipv6_event_key(struct sparx5_port *port)
+{
+	int rule_id = SPARX5_PTP_RULE_ID_OFFSET +
+		      port->portno * SPARX5_PTP_TRAP_RULES_CNT + 3;
+	int chain_id = SPARX5_VCAP_CID_IS2_L1;
+	int prio = (port->portno << 8) + 1;
+	struct vcap_rule *vrule;
+	int err;
+
+	vrule = vcap_alloc_rule(port->sparx5->vcap_ctrl, port->ndev, chain_id, VCAP_USER_PTP, prio, rule_id);
+	if (!vrule || IS_ERR(vrule))
+		return NULL;
+
+	err = vcap_rule_add_key_u32(vrule, VCAP_KF_L4_DPORT, 319, ~0);
+	if (err) {
+		vcap_del_rule(port->sparx5->vcap_ctrl, port->ndev, rule_id);
+		return NULL;
+	}
+
+	return vrule;
+}
+
+static struct vcap_rule *sparx5_ptp_add_ipv6_general_key(struct sparx5_port *port)
+{
+	int rule_id = SPARX5_PTP_RULE_ID_OFFSET +
+		      port->portno * SPARX5_PTP_TRAP_RULES_CNT + 4;
+	int chain_id = SPARX5_VCAP_CID_IS2_L1;
+	int prio = (port->portno << 8) + 1;
+	struct vcap_rule *vrule;
+	int err;
+
+	vrule = vcap_alloc_rule(port->sparx5->vcap_ctrl, port->ndev, chain_id, VCAP_USER_PTP, prio, rule_id);
+	if (!vrule || IS_ERR(vrule))
+		return NULL;
+
+	err = vcap_rule_add_key_u32(vrule, VCAP_KF_L4_DPORT, 320, ~0);
+	if (err) {
+		vcap_del_rule(port->sparx5->vcap_ctrl, port->ndev, rule_id);
+		return NULL;
+	}
+
+	return vrule;
+}
+
+static int sparx5_ptp_add_trap(struct sparx5_port *port,
+			       struct vcap_rule* (*sparx5_add_ptp_key)(struct sparx5_port*),
+			       u16 l3_proto)
+{
+	struct vcap_rule *vrule;
+	int err;
+
+	vrule = sparx5_add_ptp_key(port);
+	if (!vrule)
+		return -ENOMEM;
+
+	err = vcap_set_rule_set_actionset(vrule, VCAP_AFS_BASE_TYPE);
+	err |= vcap_rule_add_action_bit(vrule, VCAP_AF_CPU_COPY_ENA, VCAP_BIT_1);
+	err |= vcap_rule_add_action_u32(vrule, VCAP_AF_MASK_MODE, SPX5_PMM_REPLACE_ALL);
+	err |= vcap_val_rule(vrule, l3_proto); /* I'm guessing the l3_proto should depend on ptp trap type -- Casper */
+	if (err)
+		goto free_rule;
+
+	err = vcap_add_rule(vrule);
+
+free_rule:
+	/* Free the local copy of the rule */
+	vcap_free_rule(vrule);
+	return err;
+}
+
+static int sparx5_ptp_del(struct sparx5_port *port, int rule_id)
+{
+	return vcap_del_rule(port->sparx5->vcap_ctrl, port->ndev, rule_id);
+}
+
+static int sparx5_ptp_del_l2(struct sparx5_port *port)
+{
+	int rule_id = SPARX5_PTP_RULE_ID_OFFSET +
+		      port->portno * SPARX5_PTP_TRAP_RULES_CNT + 0;
+
+	return sparx5_ptp_del(port, rule_id);
+}
+
+static int sparx5_ptp_del_ipv4_event(struct sparx5_port *port)
+{
+	int rule_id = SPARX5_PTP_RULE_ID_OFFSET +
+		      port->portno * SPARX5_PTP_TRAP_RULES_CNT + 1;
+
+	return sparx5_ptp_del(port, rule_id);
+}
+
+static int sparx5_ptp_del_ipv4_general(struct sparx5_port *port)
+{
+	int rule_id = SPARX5_PTP_RULE_ID_OFFSET +
+		      port->portno * SPARX5_PTP_TRAP_RULES_CNT + 2;
+
+	return sparx5_ptp_del(port, rule_id);
+}
+
+static int sparx5_ptp_del_ipv6_event(struct sparx5_port *port)
+{
+	int rule_id = SPARX5_PTP_RULE_ID_OFFSET +
+		      port->portno * SPARX5_PTP_TRAP_RULES_CNT + 3;
+
+	return sparx5_ptp_del(port, rule_id);
+}
+
+static int sparx5_ptp_del_ipv6_general(struct sparx5_port *port)
+{
+	int rule_id = SPARX5_PTP_RULE_ID_OFFSET +
+		      port->portno * SPARX5_PTP_TRAP_RULES_CNT + 4;
+
+	return sparx5_ptp_del(port, rule_id);
+}
+
+static int sparx5_ptp_add_l2_rule(struct sparx5_port *port)
+{
+	return sparx5_ptp_add_trap(port, sparx5_ptp_add_l2_key, ETH_P_ALL);
+}
+
+static int sparx5_ptp_del_l2_rule(struct sparx5_port *port)
+{
+	return sparx5_ptp_del_l2(port);
+}
+
+static int sparx5_ptp_add_ipv4_rules(struct sparx5_port *port)
+{
+	int err;
+
+	err = sparx5_ptp_add_trap(port, sparx5_ptp_add_ipv4_event_key, ETH_P_IP);
+	if (err)
+		return err;
+
+	err = sparx5_ptp_add_trap(port, sparx5_ptp_add_ipv4_general_key, ETH_P_IP);
+	if (err)
+		sparx5_ptp_del_ipv4_event(port);
+
+	return err;
+}
+
+static int sparx5_ptp_del_ipv4_rules(struct sparx5_port *port)
+{
+	int err;
+
+	err = sparx5_ptp_del_ipv4_event(port);
+	err |= sparx5_ptp_del_ipv4_general(port);
+
+	return err;
+}
+
+static int sparx5_ptp_add_ipv6_rules(struct sparx5_port *port)
+{
+	int err;
+
+	err = sparx5_ptp_add_trap(port, sparx5_ptp_add_ipv6_event_key, ETH_P_IPV6);
+	if (err)
+		return err;
+
+	err = sparx5_ptp_add_trap(port, sparx5_ptp_add_ipv6_general_key, ETH_P_IPV6);
+	if (err)
+		sparx5_ptp_del_ipv6_event(port);
+
+	return err;
+}
+
+static int sparx5_ptp_del_ipv6_rules(struct sparx5_port *port)
+{
+	int err;
+
+	err = sparx5_ptp_del_ipv6_event(port);
+	err |= sparx5_ptp_del_ipv6_general(port);
+
+	return err;
+}
+
+static int sparx5_setup_ptp_traps(struct sparx5_port *port, bool l2, bool l4)
+{
+	int err;
+
+	if (l2)
+		err = sparx5_ptp_add_l2_rule(port);
+	else
+		err = sparx5_ptp_del_l2_rule(port);
+	if (err)
+		return err;
+
+	if (l4) {
+		err = sparx5_ptp_add_ipv4_rules(port);
+		if (err)
+			goto err_ipv4;
+
+		err = sparx5_ptp_add_ipv6_rules(port);
+		if (err)
+			goto err_ipv6;
+	} else {
+		err = sparx5_ptp_del_ipv4_rules(port);
+		err |= sparx5_ptp_del_ipv6_rules(port);
+	}
+
+	if (err)
+		return err;
+
+	return 0;
+err_ipv6:
+	sparx5_ptp_del_ipv6_rules(port);
+err_ipv4:
+	if (l2)
+		sparx5_ptp_del_l2_rule(port);
+	return 0;
+}
+
+
 int sparx5_ptp_hwtstamp_set(struct sparx5_port *port, struct ifreq *ifr)
 {
 	struct sparx5 *sparx5 = port->sparx5;
+	bool l2 = false, l4 = false;
 	struct hwtstamp_config cfg;
 	struct sparx5_phc *phc;
 
-	/* For now don't allow to run ptp on ports that are part of a bridge,
-	 * because in case of transparent clock the HW will still forward the
-	 * frames, so there would be duplicate frames
-	 */
-
-	if (test_bit(port->portno, sparx5->bridge_mask))
-		return -EINVAL;
-
 	if (copy_from_user(&cfg, ifr->ifr_data, sizeof(cfg)))
 		return -EFAULT;
+
+	switch (cfg.rx_filter) {
+	case HWTSTAMP_FILTER_NONE:
+		break;
+	case HWTSTAMP_FILTER_ALL:
+	case HWTSTAMP_FILTER_PTP_V2_L4_EVENT:
+	case HWTSTAMP_FILTER_PTP_V2_L4_SYNC:
+	case HWTSTAMP_FILTER_PTP_V2_L4_DELAY_REQ:
+		l4 = true;
+		break;
+	case HWTSTAMP_FILTER_PTP_V2_L2_EVENT:
+	case HWTSTAMP_FILTER_PTP_V2_L2_SYNC:
+	case HWTSTAMP_FILTER_PTP_V2_L2_DELAY_REQ:
+		l2 = true;
+		break;
+	case HWTSTAMP_FILTER_PTP_V2_EVENT:
+	case HWTSTAMP_FILTER_PTP_V2_SYNC:
+	case HWTSTAMP_FILTER_PTP_V2_DELAY_REQ:
+		l2 = true;
+		l4 = true;
+		break;
+	default:
+		return -ERANGE;
+	}
+
+	sparx5_setup_ptp_traps(port, l2, l4);
+
+	if (phy_has_hwtstamp(port->ndev->phydev))
+		return 0;
 
 	switch (cfg.tx_type) {
 	case HWTSTAMP_TX_ON:
@@ -102,31 +408,18 @@ int sparx5_ptp_hwtstamp_set(struct sparx5_port *port, struct ifreq *ifr)
 		port->ptp_cmd = IFH_REW_OP_NOOP;
 		break;
 	default:
+		sparx5_setup_ptp_traps(port, false, false);
 		return -ERANGE;
-	}
+ 	}
 
-	switch (cfg.rx_filter) {
-	case HWTSTAMP_FILTER_NONE:
-		break;
-	case HWTSTAMP_FILTER_ALL:
-	case HWTSTAMP_FILTER_PTP_V1_L4_EVENT:
-	case HWTSTAMP_FILTER_PTP_V1_L4_SYNC:
-	case HWTSTAMP_FILTER_PTP_V1_L4_DELAY_REQ:
-	case HWTSTAMP_FILTER_PTP_V2_L4_EVENT:
-	case HWTSTAMP_FILTER_PTP_V2_L4_SYNC:
-	case HWTSTAMP_FILTER_PTP_V2_L4_DELAY_REQ:
-	case HWTSTAMP_FILTER_PTP_V2_L2_EVENT:
-	case HWTSTAMP_FILTER_PTP_V2_L2_SYNC:
-	case HWTSTAMP_FILTER_PTP_V2_L2_DELAY_REQ:
-	case HWTSTAMP_FILTER_PTP_V2_EVENT:
-	case HWTSTAMP_FILTER_PTP_V2_SYNC:
-	case HWTSTAMP_FILTER_PTP_V2_DELAY_REQ:
-	case HWTSTAMP_FILTER_NTP_ALL:
-		cfg.rx_filter = HWTSTAMP_FILTER_ALL;
-		break;
-	default:
-		return -ERANGE;
-	}
+	if (l2 && l4)
+		cfg.rx_filter = HWTSTAMP_FILTER_PTP_V2_EVENT;
+	else if (l2)
+		cfg.rx_filter = HWTSTAMP_FILTER_PTP_V2_L2_EVENT;
+	else if (l4)
+		cfg.rx_filter = HWTSTAMP_FILTER_PTP_V2_L4_EVENT;
+	else
+		cfg.rx_filter = HWTSTAMP_FILTER_NONE;
 
 	/* Commit back the result & save it */
 	mutex_lock(&sparx5->ptp_lock);
@@ -565,7 +858,7 @@ static int sparx5_ptp_adjtime(struct ptp_clock_info *ptp, s64 delta)
 static struct ptp_clock_info sparx5_ptp_clock_info = {
 	.owner		= THIS_MODULE,
 	.name		= "sparx5 ptp",
-	.max_adj	= 200000,
+	.max_adj	= 2000000,
 	.gettime64	= sparx5_ptp_gettime64,
 	.settime64	= sparx5_ptp_settime64,
 	.adjtime	= sparx5_ptp_adjtime,
