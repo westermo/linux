@@ -722,6 +722,21 @@ int br_mrp_set_ring_state(struct net_bridge *br,
 		if (state->ring_state == BR_MRP_RING_STATE_CLOSED &&
 		    mrp->test_count_miss >= mrp->test_max_miss)
 			mrp->test_count_miss = 0;
+
+			/* Now that the ring is in the closed state, we untoggle
+			 * the BR_MRP_LOST_CONT bit in the flags. Otherwise when
+			 * the IFLA_PROTINFO is requested it could be that the
+			 * flags will indicate that the ring is open, even
+			 * though it is closed. Since otherwise this flag is
+			 * untoggled by a call to br_mrp_ring_port_open() when
+			 * we process a ring frame in br_mrp_mrm_process(), but
+			 * only when the ring is not closed, however since it is
+			 * being set to closed by this function in this case,
+			 * the flag will not be reset. Therefore, we untoggle it
+			 * here directly. */
+			mrp->p_port->flags &= ~BR_MRP_LOST_CONT;
+			mrp->s_port->flags &= ~BR_MRP_LOST_CONT;
+		}
 	}
 
 	mrp->ring_state = state->ring_state;
@@ -1035,6 +1050,13 @@ static void br_mrp_mrm_process(struct br_mrp *mrp, struct net_bridge_port *port,
 	 */
 	if (mrp->ring_state != BR_MRP_RING_STATE_CLOSED)
 		br_mrp_ring_port_open(port->dev, false);
+
+	/* Regardless if the ring state is not closed or not, we always clear
+	 * the BR_MRP_LOST_CONT bit from the port flags, since otherwise it is
+	 * possible it could end up being set, even though we do recieve ring
+	 * frames. This flag is otherwise changed in the call to the
+	 * br_mrp_ring_port_open() funcion above.*/
+	port->flags &= ~BR_MRP_LOST_CONT;
 }
 
 /* Determine if the test hdr has a better priority than the node */
