@@ -719,8 +719,7 @@ int br_mrp_set_ring_state(struct net_bridge *br,
 
 		/* If the ring state changes to closed from any other state,
 		 * ensure that the test_count_miss is reset back to 0. */
-		if (state->ring_state == BR_MRP_RING_STATE_CLOSED &&
-		    mrp->test_count_miss >= mrp->test_max_miss)
+		if (state->ring_state == BR_MRP_RING_STATE_CLOSED) {
 			mrp->test_count_miss = 0;
 
 			/* Now that the ring is in the closed state, we untoggle
