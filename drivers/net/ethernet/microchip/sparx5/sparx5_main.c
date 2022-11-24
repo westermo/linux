@@ -259,6 +259,7 @@ static int sparx5_create_port(struct sparx5 *sparx5,
 	struct sparx5_port *spx5_port;
 	struct net_device *ndev;
 	struct phylink *phylink;
+	const char *port_name;
 	int err;
 
 	ndev = sparx5_create_netdev(sparx5, config->portno, hw_addr_offset);
@@ -281,6 +282,9 @@ static int sparx5_create_port(struct sparx5 *sparx5,
 	spx5_port->phylink_pcs.ops = &sparx5_phylink_pcs_ops;
 	spx5_port->is_mrouter = false;
 	sparx5->ports[config->portno] = spx5_port;
+
+	of_property_read_string(spx5_port->of_node, "label", &port_name);
+	strncpy(ndev->name, port_name, IFNAMSIZ);
 
 	err = sparx5_port_init(sparx5, spx5_port, &config->conf);
 	if (err) {
