@@ -253,14 +253,15 @@ static int sparx5_create_targets(struct sparx5 *sparx5)
 }
 
 static int sparx5_create_port(struct sparx5 *sparx5,
-			      struct initial_port_config *config)
+			      struct initial_port_config *config,
+			      int hw_addr_offset)
 {
 	struct sparx5_port *spx5_port;
 	struct net_device *ndev;
 	struct phylink *phylink;
 	int err;
 
-	ndev = sparx5_create_netdev(sparx5, config->portno);
+	ndev = sparx5_create_netdev(sparx5, config->portno, hw_addr_offset);
 	if (IS_ERR(ndev)) {
 		dev_err(sparx5->dev, "Could not create net device: %02u\n",
 			config->portno);
@@ -849,7 +850,7 @@ static int mchp_sparx5_probe(struct platform_device *pdev)
 	if (err)
 		goto cleanup_config;
 
-	if (!of_get_mac_address(np, sparx5->base_mac)) {
+	if (of_get_mac_address(np, sparx5->base_mac)) {
 		dev_info(sparx5->dev, "MAC addr was not set, use random MAC\n");
 		eth_random_addr(sparx5->base_mac);
 		sparx5->base_mac[5] = 0;
@@ -884,7 +885,7 @@ static int mchp_sparx5_probe(struct platform_device *pdev)
 		if (!config->node)
 			continue;
 
-		err = sparx5_create_port(sparx5, config);
+		err = sparx5_create_port(sparx5, config, idx + 1);
 		if (err) {
 			dev_err(sparx5->dev, "port create error\n");
 			goto cleanup_ports;

@@ -248,7 +248,8 @@ bool sparx5_netdevice_check(const struct net_device *dev)
 	return dev && (dev->netdev_ops == &sparx5_port_netdev_ops);
 }
 
-struct net_device *sparx5_create_netdev(struct sparx5 *sparx5, u32 portno)
+struct net_device *sparx5_create_netdev(struct sparx5 *sparx5, u32 portno,
+					int hw_addr_offset)
 {
 	struct sparx5_port *spx5_port;
 	struct net_device *ndev;
@@ -270,7 +271,7 @@ struct net_device *sparx5_create_netdev(struct sparx5 *sparx5, u32 portno)
 	ndev->netdev_ops = &sparx5_port_netdev_ops;
 	ndev->ethtool_ops = &sparx5_ethtool_ops;
 
-	eth_hw_addr_gen(ndev, sparx5->base_mac, portno + 1);
+	eth_hw_addr_gen(ndev, sparx5->base_mac, hw_addr_offset);
 
 	return ndev;
 }
