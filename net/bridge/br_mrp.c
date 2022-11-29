@@ -1170,7 +1170,7 @@ static int br_mrp_correct_vid(struct net_bridge_port *p, struct sk_buff *skb,
 	u16 vid;
 
 	br_vlan_get_tag(skb, &vid);
-	if (mrp->vid != vid)
+	if (mrp->vid && mrp->vid != vid)
 	    return 0;
 	return 1;
 }
