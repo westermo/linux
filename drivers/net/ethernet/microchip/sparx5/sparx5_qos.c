@@ -1603,11 +1603,21 @@ static int sparx5_tas_show(struct seq_file *m, void *unused)
 }
 DEFINE_SHOW_ATTRIBUTE(sparx5_tas);
 
+static int sparx5_highest_portno(struct sparx5 *sparx5)
+{
+	int i, highest = 0;
+	for (i = 0; i < SPX5_PORTS; i++) {
+		if (sparx5->ports[i] && sparx5->ports[i]->portno > highest)
+			highest = sparx5->ports[i]->portno;
+	}
+	return highest;
+}
+
 static int sparx5_tas_init(struct sparx5 *sparx5)
 {
 	int i;
 
-	num_ports = sparx5->port_count;
+	num_ports = sparx5_highest_portno(sparx5) + 1;
 	num_tas_lists = num_ports * TAS_ENTRIES_PER_PORT;
 
 	spx5_wr(HSCH_TAS_STATEMACHINE_CFG_REVISIT_DLY_SET((256 * 1000) /
