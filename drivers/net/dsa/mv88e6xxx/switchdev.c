@@ -111,7 +111,7 @@ static int mv88e6xxx_new_atu_locked_entry(struct mv88e6xxx_chip *chip, const uns
 	ale->fid = fid;
 	ale->vid = vid;
 	now = jiffies;
-	age_time = chip->age_time * chip->info->age_time_coeff;
+	age_time = msecs_to_jiffies(chip->age_time * chip->info->age_time_coeff);
 	ale->expires = now + age_time;
 
 	*alep = ale;
