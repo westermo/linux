@@ -183,6 +183,8 @@ int mv88e6xxx_handle_violation(struct mv88e6xxx_chip *chip, int port,
 		entry->trunk = false;
 		mv88e6xxx_reg_lock(chip);
 		err = mv88e6xxx_g1_atu_loadpurge(chip, fid, entry);
+		if (err)
+			goto fail;
 		mv88e6xxx_reg_unlock(chip);
 		rtnl_lock();
 		err = call_switchdev_notifiers(SWITCHDEV_FDB_DEL_TO_BRIDGE,
