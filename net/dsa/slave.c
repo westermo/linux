@@ -2618,6 +2618,32 @@ dsa_slave_lag_prechangeupper(struct net_device *dev,
 }
 
 static int
+dsa_slave_hsr_changeupper(struct net_device *dev,
+			  struct netdev_notifier_changeupper_info *info)
+{
+	struct net_device *lower;
+	struct list_head *iter;
+	int err = NOTIFY_DONE;
+	struct dsa_port *dp;
+
+	netdev_for_each_lower_dev(dev, lower, iter) {
+		if (!dsa_slave_dev_check(lower))
+			continue;
+
+		dp = dsa_slave_to_port(lower);
+		if (!dp->hsr_dev)
+			/* Software HSR */
+			continue;
+
+		err = dsa_slave_changeupper(lower, info);
+		if (notifier_to_errno(err))
+			break;
+	}
+
+	return err;
+}
+
+static int
 dsa_prevent_bridging_8021q_upper(struct net_device *dev,
 				 struct netdev_notifier_changeupper_info *info)
 {
@@ -2735,6 +2761,9 @@ static int dsa_slave_netdevice_event(struct notifier_block *nb,
 
 		if (netif_is_lag_master(dev))
 			return dsa_slave_lag_changeupper(dev, ptr);
+
+		if (is_hsr_master(dev))
+			return dsa_slave_hsr_changeupper(dev, ptr);
 
 		break;
 	case NETDEV_CHANGELOWERSTATE: {
