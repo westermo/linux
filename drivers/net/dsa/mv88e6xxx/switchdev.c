@@ -42,7 +42,7 @@ static void mv88e6xxx_atu_locked_entry_purge(struct mv88e6xxx_atu_locked_entry *
 		.locked = true,
 		.offloaded = true,
 	};
-	struct mv88e6xxx_atu_entry entry;
+	struct mv88e6xxx_atu_entry entry = { 0 };
 	struct net_device *brport;
 	struct dsa_port *dp;
 
