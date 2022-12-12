@@ -471,7 +471,7 @@ static irqreturn_t mv88e6xxx_g1_atu_prob_irq_thread_fn(int irq, void *dev_id)
 		unsigned long port = 0;
 		unsigned long portvec = entry.portvec;
 
-		port = _find_first_bit(&portvec, 16);
+		port = find_first_bit(&portvec, 16);
 		if (port >= 16) {
 			dev_err_ratelimited(chip->dev,
 						"ATU problem for age out violation %pM, port not found in portvec %x\n",
