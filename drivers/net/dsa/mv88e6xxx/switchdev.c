@@ -42,7 +42,7 @@ static void mv88e6xxx_atu_locked_entry_purge(struct mv88e6xxx_atu_locked_entry *
 		.locked = true,
 		.offloaded = true,
 	};
-	struct mv88e6xxx_atu_entry entry;
+	struct mv88e6xxx_atu_entry entry = { 0 };
 	struct net_device *brport;
 	struct dsa_port *dp;
 
@@ -111,7 +111,7 @@ static int mv88e6xxx_new_atu_locked_entry(struct mv88e6xxx_chip *chip, const uns
 	ale->fid = fid;
 	ale->vid = vid;
 	now = jiffies;
-	age_time = chip->age_time * chip->info->age_time_coeff;
+	age_time = msecs_to_jiffies(chip->age_time * chip->info->age_time_coeff);
 	ale->expires = now + age_time;
 
 	*alep = ale;
@@ -183,6 +183,8 @@ int mv88e6xxx_handle_violation(struct mv88e6xxx_chip *chip, int port,
 		entry->trunk = false;
 		mv88e6xxx_reg_lock(chip);
 		err = mv88e6xxx_g1_atu_loadpurge(chip, fid, entry);
+		if (err)
+			goto fail;
 		mv88e6xxx_reg_unlock(chip);
 		rtnl_lock();
 		err = call_switchdev_notifiers(SWITCHDEV_FDB_DEL_TO_BRIDGE,

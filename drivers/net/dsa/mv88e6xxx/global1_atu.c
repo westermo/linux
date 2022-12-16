@@ -433,7 +433,7 @@ int mv88e6xxx_g1_atu_remove(struct mv88e6xxx_chip *chip, u16 fid, int port,
 static irqreturn_t mv88e6xxx_g1_atu_prob_irq_thread_fn(int irq, void *dev_id)
 {
 	struct mv88e6xxx_chip *chip = dev_id;
-	struct mv88e6xxx_atu_entry entry;
+	struct mv88e6xxx_atu_entry entry = { 0 };
 	int err, spid;
 	u16 val, fid;
 
@@ -448,10 +448,6 @@ static irqreturn_t mv88e6xxx_g1_atu_prob_irq_thread_fn(int irq, void *dev_id)
 		goto out;
 
 	err = mv88e6xxx_g1_atu_fid_read(chip, &fid);
-	if (err)
-		goto out;
-
-	err = mv88e6xxx_g1_read(chip, MV88E6352_G1_ATU_FID, &fid);
 	if (err)
 		goto out;
 
