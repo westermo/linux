@@ -1272,18 +1272,6 @@ static void mroute_clean_tables(struct mr_table *mrt, int flags)
 	LIST_HEAD(list);
 	int i;
 
-	/* Shut down all active vif entries */
-	if (flags & (MRT_FLUSH_VIFS | MRT_FLUSH_VIFS_STATIC)) {
-		for (i = 0; i < mrt->maxvif; i++) {
-			if (((mrt->vif_table[i].flags & VIFF_STATIC) &&
-			     !(flags & MRT_FLUSH_VIFS_STATIC)) ||
-			    (!(mrt->vif_table[i].flags & VIFF_STATIC) && !(flags & MRT_FLUSH_VIFS)))
-				continue;
-			vif_delete(mrt, i, 0, &list);
-		}
-		unregister_netdevice_many(&list);
-	}
-
 	/* Wipe the cache */
 	if (flags & (MRT_FLUSH_MFC | MRT_FLUSH_MFC_STATIC)) {
 		list_for_each_entry_safe(c, tmp, &mrt->mfc_cache_list, list) {
@@ -1298,6 +1286,18 @@ static void mroute_clean_tables(struct mr_table *mrt, int flags)
 			mroute_netlink_event(mrt, cache, RTM_DELROUTE);
 			mr_cache_put(c);
 		}
+	}
+
+	/* Shut down all active vif entries */
+	if (flags & (MRT_FLUSH_VIFS | MRT_FLUSH_VIFS_STATIC)) {
+		for (i = 0; i < mrt->maxvif; i++) {
+			if (((mrt->vif_table[i].flags & VIFF_STATIC) &&
+			     !(flags & MRT_FLUSH_VIFS_STATIC)) ||
+			    (!(mrt->vif_table[i].flags & VIFF_STATIC) && !(flags & MRT_FLUSH_VIFS)))
+				continue;
+			vif_delete(mrt, i, 0, &list);
+		}
+		unregister_netdevice_many(&list);
 	}
 
 	if (flags & MRT_FLUSH_MFC) {
