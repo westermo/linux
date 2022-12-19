@@ -594,6 +594,7 @@ void br_fdb_delete_by_port(struct net_bridge *br,
 	struct switchdev_attr attr = {
 		.id = SWITCHDEV_ATTR_ID_PORT_FDB_FLUSH,
 		.flags = SWITCHDEV_F_DEFER,
+		.u.flush_vid = vid,
 	};
 	struct net_bridge_fdb_entry *f;
 	struct hlist_node *tmp;
