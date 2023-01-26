@@ -632,10 +632,10 @@ static int dsa_slave_port_obj_add(struct net_device *dev, const void *ctx,
 
 	switch (obj->id) {
 	case SWITCHDEV_OBJ_ID_PORT_MDB:
-		if (dsa_port_offloads_bridge_port(dp, obj->orig_dev))
-			err = dsa_port_mdb_add(dp, SWITCHDEV_OBJ_PORT_MDB(obj));
-		else
-			err = dsa_port_bridge_host_mdb_add(dp, SWITCHDEV_OBJ_PORT_MDB(obj));
+		if (!dsa_port_offloads_bridge_port(dp, obj->orig_dev))
+			return -EOPNOTSUPP;
+
+		err = dsa_port_mdb_add(dp, SWITCHDEV_OBJ_PORT_MDB(obj));
 		break;
 	case SWITCHDEV_OBJ_ID_HOST_MDB:
 		if (!dsa_port_offloads_bridge_dev(dp, obj->orig_dev))
@@ -713,10 +713,10 @@ static int dsa_slave_port_obj_del(struct net_device *dev, const void *ctx,
 
 	switch (obj->id) {
 	case SWITCHDEV_OBJ_ID_PORT_MDB:
-		if (dsa_port_offloads_bridge_dev(dp, obj->orig_dev))
-			err = dsa_port_mdb_del(dp, SWITCHDEV_OBJ_PORT_MDB(obj));
-		else
-			err = dsa_port_bridge_host_mdb_del(dp, SWITCHDEV_OBJ_PORT_MDB(obj));
+		if (!dsa_port_offloads_bridge_port(dp, obj->orig_dev))
+			return -EOPNOTSUPP;
+
+		err = dsa_port_mdb_del(dp, SWITCHDEV_OBJ_PORT_MDB(obj));
 		break;
 	case SWITCHDEV_OBJ_ID_HOST_MDB:
 		if (!dsa_port_offloads_bridge_dev(dp, obj->orig_dev))
