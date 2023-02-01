@@ -95,7 +95,7 @@ static int switchdev_deferred_enqueue(struct net_device *dev,
 	spin_lock_bh(&deferred_lock);
 	list_add_tail(&dfitem->list, &deferred);
 	spin_unlock_bh(&deferred_lock);
-	schedule_work(&deferred_process_work);
+	queue_work(system_highpri_wq, &deferred_process_work);
 	return 0;
 }
 
