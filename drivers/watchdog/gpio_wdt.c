@@ -31,6 +31,7 @@ struct gpio_wdt_priv {
 	struct gpio_desc	*gpiod;
 	bool			state;
 	bool			always_running;
+	bool			auto_start;
 	unsigned int		hw_algo;
 	struct watchdog_device	wdd;
 };
@@ -146,6 +147,8 @@ static int gpio_wdt_probe(struct platform_device *pdev)
 
 	priv->always_running = of_property_read_bool(np,
 						     "always-running");
+	priv->auto_start = of_property_read_bool(pdev->dev.of_node,
+						     "auto-start");
 
 	watchdog_set_drvdata(&priv->wdd, priv);
 
@@ -161,7 +164,7 @@ static int gpio_wdt_probe(struct platform_device *pdev)
 
 	watchdog_stop_on_reboot(&priv->wdd);
 
-	if (priv->always_running)
+	if (priv->always_running || priv->auto_start)
 		gpio_wdt_start(&priv->wdd);
 
 	return devm_watchdog_register_device(dev, &priv->wdd);
