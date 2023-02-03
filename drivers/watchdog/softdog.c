@@ -87,7 +87,7 @@ static enum hrtimer_restart softdog_fire(struct hrtimer *timer)
 		panic("Software Watchdog Timer expired");
 	} else {
 		pr_crit("Initiating system reboot\n");
-		if (!soft_reboot_fired && soft_reboot_cmd != NULL) {
+		if (!soft_reboot_fired) {
 			static DECLARE_WORK(reboot_work, reboot_work_fn);
 			/*
 			 * The 'kernel_restart' is a 'might-sleep' operation.
