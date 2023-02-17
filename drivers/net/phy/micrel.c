@@ -2719,26 +2719,34 @@ static void lan8814_get_rx_ts(struct kszphy_ptp_priv *ptp_priv)
 	} while (PTP_CAP_INFO_RX_TS_CNT_GET_(reg) > 0);
 }
 
-static void lan8814_handle_ptp_interrupt(struct phy_device *phydev, u16 status)
+static irqreturn_t lan8814_handle_ptp_interrupt(struct phy_device *phydev, u16 status)
 {
 	struct kszphy_priv *priv = phydev->priv;
 	struct kszphy_ptp_priv *ptp_priv = &priv->ptp_priv;
+	irqreturn_t ret = IRQ_NONE;
 
-	if (status & PTP_TSU_INT_STS_PTP_TX_TS_EN_)
+	if (status & PTP_TSU_INT_STS_PTP_TX_TS_EN_) {
 		lan8814_get_tx_ts(ptp_priv);
+		ret = IRQ_HANDLED;
+	}
 
-	if (status & PTP_TSU_INT_STS_PTP_RX_TS_EN_)
+	if (status & PTP_TSU_INT_STS_PTP_RX_TS_EN_) {
 		lan8814_get_rx_ts(ptp_priv);
+		ret = IRQ_HANDLED;
+	}
 
 	if (status & PTP_TSU_INT_STS_PTP_TX_TS_OVRFL_INT_) {
 		lan8814_flush_fifo(phydev, true);
 		skb_queue_purge(&ptp_priv->tx_queue);
+		ret = IRQ_HANDLED;
 	}
 
 	if (status & PTP_TSU_INT_STS_PTP_RX_TS_OVRFL_INT_) {
 		lan8814_flush_fifo(phydev, false);
 		skb_queue_purge(&ptp_priv->rx_queue);
+		ret = IRQ_HANDLED;
 	}
+	return ret;
 }
 
 static int lan8804_config_init(struct phy_device *phydev)
@@ -2837,7 +2845,7 @@ static irqreturn_t lan8814_handle_interrupt(struct phy_device *phydev)
 	}
 
 	while ((irq_status = lanphy_read_page_reg(phydev, 5, PTP_TSU_INT_STS)) != 0)
-		lan8814_handle_ptp_interrupt(phydev, irq_status);
+		ret |= lan8814_handle_ptp_interrupt(phydev, irq_status);
 
 	return ret;
 }

@@ -720,24 +720,6 @@ static void sparx5_fp_enable(struct sparx5_port *port,
 {
 	u32 unit, val, i;
 
-	/* TBD: Port reset is perhaps needed when disabling FP */
-
-	/* Disable preemptible queues */
-	for (i = 0; i < 8; i++) {
-		spx5_rmw(HSCH_HSCH_L0_CFG_P_QUEUES_SET(0),
-			 HSCH_HSCH_L0_CFG_P_QUEUES,
-			 port->sparx5,
-			 HSCH_HSCH_L0_CFG(SPX5_HSCH_L0_GET_IDX(port->portno, i)));
-	}
-
-	SPX5_DEV_WR(DEV2G5_ENABLE_CONFIG_MM_RX_ENA_SET(1) |
-		    DEV2G5_ENABLE_CONFIG_MM_TX_ENA_SET(enable_tx) |
-		    DEV2G5_ENABLE_CONFIG_KEEP_S_AFTER_D_SET(0),
-		    port,
-		    ENABLE_CONFIG);
-
-	SPX5_DEV_RD(val, port, ENABLE_CONFIG);
-
 	switch (port->conf.speed) {
 	case SPEED_10:
 	case SPEED_100:
@@ -765,11 +747,19 @@ static void sparx5_fp_enable(struct sparx5_port *port,
 		DSM_IPG_SHRINK_CFG(port->portno));
 
 	for (i = 0; i < 8; i++) {
+		/* Set queue to be express (0) or preemtable (1) */
 		val = (enable_tx && (c->admin_status & BIT(i))) ? 0xff : 0;
 		spx5_rmw(HSCH_HSCH_L0_CFG_P_QUEUES_SET(val),
 			 HSCH_HSCH_L0_CFG_P_QUEUES,
 			 port->sparx5,
 			 HSCH_HSCH_L0_CFG(SPX5_HSCH_L0_GET_IDX(port->portno, i)));
+
+		/* Force update of an element  */
+		spx5_wr(HSCH_HSCH_FORCE_CTRL_HFORCE_LAYER_SET(0) |
+				HSCH_HSCH_FORCE_CTRL_HFORCE_SE_IDX_SET(SPX5_HSCH_L0_GET_IDX(port->portno, i)) |
+				HSCH_HSCH_FORCE_CTRL_HFORCE_1SHOT_SET(1),
+				port->sparx5,
+				HSCH_HSCH_FORCE_CTRL);
 	}
 }
 
@@ -877,8 +867,7 @@ static int sparx5_fp_init(struct sparx5 *sparx5)
 	struct sparx5_port *port;
 	void __iomem *devinst;
 	u32 val, pix, dev;
-	u8 vector;
-	int p, i;
+	int p;
 
 	/* Initialize frame-preemption and sync config with defaults */
 	for (p = 0; p < SPX5_PORTS; p++) {
@@ -886,13 +875,17 @@ static int sparx5_fp_init(struct sparx5 *sparx5)
 		if (!port)
 			continue;
 
-		/* Always enable MAC-MERGE Layer Receive block */
-		SPX5_DEV_RMW(DEV2G5_ENABLE_CONFIG_MM_RX_ENA_SET(1),
-			     DEV2G5_ENABLE_CONFIG_MM_RX_ENA,
-			     port,
-			     ENABLE_CONFIG);
+		/* Always enable MAC-MERGE Layer block, queue controls FP */
+		SPX5_DEV_WR(DEV2G5_ENABLE_CONFIG_MM_RX_ENA_SET(1) |
+					DEV2G5_ENABLE_CONFIG_MM_TX_ENA_SET(1) |
+					DEV2G5_ENABLE_CONFIG_KEEP_S_AFTER_D_SET(0),
+					port,
+					ENABLE_CONFIG);
 
-		SPX5_DEV_RD(val, port, ENABLE_CONFIG);
+		SPX5_DEV_RMW(DEV10G_DEV_PFRAME_CFG_DEV_FRAGMENT_IFG_SET(12),
+					 DEV10G_DEV_PFRAME_CFG_DEV_FRAGMENT_IFG,
+					 port,
+					 DEV_PFRAME_CFG);
 
 		if (sparx5_is_baser(port->conf.portmode)) {
 			pix = sparx5_port_dev_index(port->portno);
@@ -904,19 +897,18 @@ static int sparx5_fp_init(struct sparx5 *sparx5)
 				      DEV10G_MAC_ADV_CHK_CFG(0));
 		}
 
-		vector = 0;
-		for (i = 0; i < 8; i++) {
-			val = spx5_rd(port->sparx5,
-				      HSCH_HSCH_L0_CFG(SPX5_HSCH_L0_GET_IDX(port->portno, i)));
-			vector |= val > 0 ? BIT(i) : 0;
-		}
-		port->fp.admin_status = vector;
+		SPX5_DEV_RMW(DEV2G5_VERIF_CONFIG_PRM_VERIFY_DIS_SET(1),
+			 DEV2G5_VERIF_CONFIG_PRM_VERIFY_DIS,
+			 port,
+			 VERIF_CONFIG);
+
+		port->fp.admin_status = 0;
 
 		SPX5_DEV_RD(val, port, ENABLE_CONFIG);
-		port->fp.enable_tx = DEV2G5_ENABLE_CONFIG_MM_TX_ENA_GET(val);
+		port->fp.enable_tx = false;
 
 		SPX5_DEV_RD(val, port, VERIF_CONFIG);
-		port->fp.verify_disable_tx = DEV2G5_VERIF_CONFIG_PRM_VERIFY_DIS_GET(val);
+		port->fp.verify_disable_tx = true;
 		port->fp.verify_time = DEV2G5_VERIF_CONFIG_PRM_VERIFY_TIME_GET(val);
 
 		val = spx5_rd(port->sparx5, DSM_PREEMPT_CFG(port->portno));
