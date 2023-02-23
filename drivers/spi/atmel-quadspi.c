@@ -433,9 +433,19 @@ static int atmel_qspi_exec_op(struct spi_mem *mem, const struct spi_mem_op *op)
 		(void)atmel_qspi_read(aq, QSPI_IFR);
 
 		/* Send/Receive data */
+#if 0
 		if (op->data.dir == SPI_MEM_DATA_IN)
 			memcpy_fromio(op->data.buf.in, aq->mem + offset,
 				      op->data.nbytes);
+#else
+		if (op->data.dir == SPI_MEM_DATA_IN) {
+			char *tmp;
+			tmp = kmalloc(op->data.nbytes, sizeof(char));
+			memcpy_fromio(tmp, aq->mem + offset, op->data.nbytes);
+			memcpy(op->data.buf.in, tmp, op->data.nbytes);
+			kfree(tmp);
+		}
+#endif
 		else
 			memcpy_toio(aq->mem + offset, op->data.buf.out,
 				    op->data.nbytes);
