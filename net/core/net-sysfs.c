@@ -349,6 +349,16 @@ static ssize_t carrier_down_count_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(carrier_down_count);
 
+static ssize_t urgent_show(struct device *dev,
+			   struct device_attribute *attr,
+			   char *buf)
+{
+	struct net_device *netdev = to_net_dev(dev);
+
+	return sprintf(buf, fmt_dec, !!(netdev->flags & IFF_URGENT));
+}
+static DEVICE_ATTR_RO(urgent);
+
 /* read-write attributes */
 
 static int change_mtu(struct net_device *dev, unsigned long new_mtu)
@@ -651,6 +661,7 @@ static struct attribute *net_class_attrs[] __ro_after_init = {
 	&dev_attr_carrier_up_count.attr,
 	&dev_attr_carrier_down_count.attr,
 	&dev_attr_threaded.attr,
+	&dev_attr_urgent.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(net_class);
