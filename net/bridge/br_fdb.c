@@ -594,6 +594,7 @@ void br_fdb_delete_by_port(struct net_bridge *br,
 	struct switchdev_attr attr = {
 		.id = SWITCHDEV_ATTR_ID_PORT_FDB_FLUSH,
 		.flags = SWITCHDEV_F_DEFER,
+		.u.flush_vid = vid,
 	};
 	struct net_bridge_fdb_entry *f;
 	struct hlist_node *tmp;
@@ -947,8 +948,6 @@ static int fdb_add_entry(struct net_bridge *br, struct net_bridge_port *source,
 	if (fdb_to_nud(br, fdb) != state) {
 		if (state & NUD_PERMANENT) {
 			set_bit(BR_FDB_LOCAL, &fdb->flags);
-			if (blackhole != test_bit(BR_FDB_BLACKHOLE, &fdb->flags))
-				change_bit(BR_FDB_BLACKHOLE, &fdb->flags);
 			if (!test_and_set_bit(BR_FDB_STATIC, &fdb->flags))
 				fdb_add_hw_addr(br, addr);
 		} else if (state & NUD_NOARP) {
@@ -969,6 +968,9 @@ static int fdb_add_entry(struct net_bridge *br, struct net_bridge_port *source,
 		change_bit(BR_FDB_STICKY, &fdb->flags);
 		modified = true;
 	}
+
+	if (test_and_clear_bit(BR_FDB_BLACKHOLE, &fdb->flags))
+		modified = true;
 
 	if (test_and_clear_bit(BR_FDB_LOCKED, &fdb->flags))
 		modified = true;

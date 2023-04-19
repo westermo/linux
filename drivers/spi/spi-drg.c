@@ -96,8 +96,8 @@ static int drg_spi_set_speed(struct drg_spi *dspi, u32 speed)
 
 static inline int drg_spi_wait(struct drg_spi *dspi, int uses_irq)
 {
-	/* timeout after a total of 100ms has passed */
-	unsigned long timeout = msecs_to_jiffies(100);
+	/* timeout after a total of 500ms has passed */
+	unsigned long timeout = msecs_to_jiffies(500);
 	int ret;
 
 	/* not all commands use irq signaling, e.g. chipselect options */

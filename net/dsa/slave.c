@@ -2957,6 +2957,74 @@ static int dsa_slave_switchdev_event(struct notifier_block *unused,
 	return NOTIFY_OK;
 }
 
+static int dsa_port_lower_dev_walk(struct net_device *lower_dev, struct netdev_nested_priv *priv)
+{
+	int ret = 0;
+
+	if (dsa_slave_dev_check(lower_dev)) {
+		priv->data = (void *)lower_dev;
+		ret = 1;
+	}
+
+	return ret;
+}
+
+/* Find and return the physical interface if it exists */
+static struct net_device *dsa_port_lower_find(struct net_device *ev_dev)
+{
+	struct netdev_nested_priv priv = {
+		.data = NULL,
+	};
+
+	if (dsa_slave_dev_check(ev_dev))
+		return ev_dev;
+
+	netdev_walk_all_lower_dev(ev_dev, dsa_port_lower_dev_walk, &priv);
+
+	return (struct net_device *)priv.data;
+
+}
+
+static void dsa_flush_ports_to_virtual_port(struct net_device *dev)
+{
+	struct net_device *ndev, *br;
+	struct dsa_port *np, *dp;
+
+	if (dsa_port_lower_find(dev))
+		return;
+
+	br = netdev_master_upper_dev_get(dev);
+	if (!br)
+		return;
+	ndev = dsa_port_lower_find(br);
+	if (!ndev)
+		return;
+
+	np = dsa_slave_to_port(ndev);
+	list_for_each_entry(dp, &np->ds->dst->ports, list) {
+		if (dsa_port_is_cpu(dp)) {
+			dsa_port_fast_age(dp);
+			return;
+		}
+	}
+}
+
+/* If dev is a virtual port the traffic to this port is through
+ * the cpu port flush so flush the cpu port then  */
+static int dsa_port_not_offloaded(struct net_device *dev, unsigned long event,
+			   struct switchdev_notifier_port_attr_info *port_attr_info)
+{
+	const struct switchdev_attr *attr = port_attr_info->attr;
+
+	switch (event) {
+	case SWITCHDEV_PORT_ATTR_SET:
+		if (attr->id == SWITCHDEV_ATTR_ID_PORT_FDB_FLUSH)
+			dsa_flush_ports_to_virtual_port(dev);
+		break;
+	}
+        return NOTIFY_DONE;
+}
+
 static int dsa_slave_switchdev_blocking_event(struct notifier_block *unused,
 					      unsigned long event, void *ptr)
 {
@@ -2980,6 +3048,9 @@ static int dsa_slave_switchdev_blocking_event(struct notifier_block *unused,
 		err = switchdev_handle_port_attr_set(dev, ptr,
 						     dsa_slave_dev_check,
 						     dsa_slave_port_attr_set);
+		if (!err)
+			err = dsa_port_not_offloaded(dev, event, ptr);
+
 		return notifier_from_errno(err);
 	}
 

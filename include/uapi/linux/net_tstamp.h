@@ -65,6 +65,7 @@ struct so_timestamping {
  * @flags:	one of HWTSTAMP_FLAG_*
  * @tx_type:	one of HWTSTAMP_TX_*
  * @rx_filter:	one of HWTSTAMP_FILTER_*
+ * @clk_type    one of HWTSTAMP_CLOCK_TYPE_*
  *
  * %SIOCGHWTSTAMP and %SIOCSHWTSTAMP expect a &struct ifreq with a
  * ifr_data pointer to this structure.  For %SIOCSHWTSTAMP, if the
@@ -76,6 +77,7 @@ struct hwtstamp_config {
 	int flags;
 	int tx_type;
 	int rx_filter;
+	int clk_type;
 };
 
 /* possible values for hwtstamp_config->flags */
@@ -174,6 +176,14 @@ enum hwtstamp_rx_filters {
 
 	/* add new constants above here */
 	__HWTSTAMP_FILTER_CNT
+};
+
+/* possible values for hwtstamp_config->tx_type */
+enum hwtstamp_clk_types {
+	HWTSTAMP_CLOCK_TYPE_NONE,
+	HWTSTAMP_CLOCK_TYPE_TRANSPARENT_CLOCK,
+	HWTSTAMP_CLOCK_TYPE_ORDINARY_CLOCK,
+	HWTSTAMP_CLOCK_TYPE_BOUNDARY_CLOCK,
 };
 
 /* SCM_TIMESTAMPING_PKTINFO control message */

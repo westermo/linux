@@ -76,7 +76,7 @@ static void dsa_flush_dsa_towards_port(const struct dsa_port *dest_dp)
 	list_for_each_entry(src_dp, &dst->ports, list) {
 		struct dsa_switch *src_ds = src_dp->ds;
 
-		if (!dsa_port_to_flush(dest_dp, src_dp) && !dsa_port_is_cpu(src_dp))
+		if (!dsa_port_to_flush(dest_dp, src_dp))
 		    continue;
 
 		if (src_ds->ops->port_fast_age)

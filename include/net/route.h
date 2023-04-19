@@ -265,6 +265,30 @@ static inline char rt_tos2priority(u8 tos)
 	return ip_tos2prio[IPTOS_TOS(tos)>>1];
 }
 
+static inline char rt_dscp2priority(u8 dscp)
+{
+	switch (dscp) {
+	case 0x00:
+		return 0;
+	case 0x20:
+		return 1;
+	case 0x40:
+		return 2;
+	case 0x60:
+		return 3;
+	case 0x80:
+		return 4;
+	case 0xa0:
+		return 5;
+	case 0xc0:
+		return 6;
+	case 0xe0:
+		return 7;
+	default:
+		return 0;
+	}
+}
+
 /* ip_route_connect() and ip_route_newports() work in tandem whilst
  * binding a socket for a new outgoing connection.
  *

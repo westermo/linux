@@ -97,6 +97,9 @@ static bool linkwatch_urgent_event(struct net_device *dev)
 	if (!netif_running(dev))
 		return false;
 
+	if (dev->flags & IFF_URGENT)
+		return true;
+
 	if (dev->ifindex != dev_get_iflink(dev))
 		return true;
 
