@@ -251,10 +251,12 @@ static int sama5d4_wdt_init(struct sama5d4_wdt *wdt)
 static int sama5d4_wdt_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
+	struct device_node *np = dev->of_node;
 	struct watchdog_device *wdd;
 	struct sama5d4_wdt *wdt;
 	void __iomem *regs;
 	u32 irq = 0;
+	unsigned int hw_margin;
 	int ret;
 
 	wdt = devm_kzalloc(dev, sizeof(*wdt), GFP_KERNEL);
@@ -268,6 +270,16 @@ static int sama5d4_wdt_probe(struct platform_device *pdev)
 	wdd->min_timeout = MIN_WDT_TIMEOUT;
 	wdd->max_timeout = MAX_WDT_TIMEOUT;
 	wdt->last_ping = jiffies;
+
+	ret = of_property_read_u32(np,
+				   "hw_margin_ms", &hw_margin);
+	if (ret)
+		return ret;
+	/* Disallow values lower than 2 and higher than 65535 ms */
+	if (hw_margin < 2 || hw_margin > 65535)
+		return -EINVAL;;
+
+	wdd->max_hw_heartbeat_ms = hw_margin;
 
 	if (of_device_is_compatible(dev->of_node, "microchip,sam9x60-wdt") ||
 	    of_device_is_compatible(dev->of_node, "microchip,sama7g5-wdt"))
